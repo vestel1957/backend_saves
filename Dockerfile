@@ -7,9 +7,11 @@ RUN corepack enable
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
+RUN pnpx prisma generate
 
 # ---- build ----
 FROM base AS build
+WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm run build
