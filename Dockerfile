@@ -1,21 +1,23 @@
-# ---- deps ----
-FROM node:20-alpine AS deps
+# ---- base ----
+FROM node:20-alpine AS base
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+RUN corepack enable
+
+# ---- deps ----
+FROM base AS deps
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 
 # ---- build ----
-FROM node:20-alpine AS build
-WORKDIR /app
+FROM base AS build
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # ---- prod deps ----
-FROM node:20-alpine AS prod-deps
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --omit=dev
+FROM base AS prod-deps
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile --prod
 
 # ---- runner ----
 FROM node:20-alpine AS runner
@@ -24,6 +26,7 @@ ENV NODE_ENV=production
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/prisma ./prisma
 
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
