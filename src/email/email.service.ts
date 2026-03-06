@@ -1,24 +1,37 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 
 @Injectable()
-export class EmailService {
+export class EmailService implements OnModuleInit {
+  private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
 
   constructor() {
-    // Configurar el transporter con las variables de entorno
+    const port = parseInt(process.env.SMTP_PORT || '587', 10);
+    const secure = port === 465;
+
     this.transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: false,
+      port,
+      secure,
       auth: {
         user: process.env.SMTP_USER || '',
         pass: process.env.SMTP_PASS || '',
       },
+      logger: true,
+      debug: true,
     });
   }
 
-  // Enviar código de recuperación de contraseña
+  async onModuleInit() {
+    try {
+      await this.transporter.verify();
+      this.logger.log('SMTP listo para enviar correos');
+    } catch (error) {
+      this.logger.error('Error verificando SMTP', error);
+    }
+  }
+
   async sendResetCode(email: string, code: string, name?: string) {
     const mailOptions = {
       from: `"${process.env.SMTP_FROM_NAME || 'Dashboard Ecommerce'}" <${process.env.SMTP_USER || 'noreply@app.com'}>`,
@@ -41,11 +54,12 @@ export class EmailService {
     };
 
     try {
-      await this.transporter.sendMail(mailOptions);
-      return true;
+      const info = await this.transporter.sendMail(mailOptions);
+      this.logger.log(`Email enviado: ${info.messageId} - ${info.response}`);
+      return info;
     } catch (error) {
-      console.error('Error enviando email:', error);
-      return false;
+      this.logger.error('Error enviando email', error);
+      throw error;
     }
   }
 }
