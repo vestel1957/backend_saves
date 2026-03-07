@@ -73,6 +73,7 @@ model permissions {
   updated_at       DateTime           @default(now()) @db.Timestamptz(6)
   tenant           tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   role_permissions role_permissions[]
+  user_permissions user_permissions[]
 
   @@unique([tenant_id, module, submodule, action])
   @@index([action], map: "idx_permissions_action")
@@ -199,11 +200,27 @@ model users {
   user_roles           user_roles[]           @relation("user_roles")
   sessions             user_sessions[]
   tenant               tenants?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_permissions     user_permissions[]  @relation("user_permissions")
+  permissions_granted  user_permissions[]  @relation("permission_granted_by")
 
   @@index([tenant_id, is_active], map: "idx_users_active")
   @@index([email], map: "idx_users_email")
   @@index([tenant_id], map: "idx_users_tenant")
   @@index([username], map: "idx_users_username")
+}
+
+model user_permissions {
+  user_id       String      @db.Uuid
+  permission_id String      @db.Uuid
+  granted_at    DateTime    @default(now()) @db.Timestamptz(6)
+  granted_by    String?     @db.Uuid
+  granted_by_user users?    @relation("permission_granted_by", fields: [granted_by], references: [id], onUpdate: NoAction)
+  permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user          users       @relation("user_permissions", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, permission_id])
+  @@index([permission_id], map: "idx_user_permissions_perm")
+  @@index([user_id], map: "idx_user_permissions_user")
 }
 
 model password_reset_codes {

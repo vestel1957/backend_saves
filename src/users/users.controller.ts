@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
@@ -48,6 +48,7 @@ export class UsersController {
       first_name?: string;
       last_name?: string;
       role_ids?: string[];
+      extra_permission_ids?: string[];
     },
   ) {
     return this.usersService.create(tenantId, body, userId);
@@ -59,14 +60,17 @@ export class UsersController {
   update(
     @Param('id') id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
     @Body() body: {
       first_name?: string;
       last_name?: string;
       avatar_url?: string;
       is_active?: boolean;
+      role_ids?: string[];
+      extra_permission_ids?: string[];
     },
   ) {
-    return this.usersService.update(id, tenantId, body);
+    return this.usersService.update(id, tenantId, body, userId);
   }
 
   // DELETE /api/v1/users/:id
@@ -78,6 +82,8 @@ export class UsersController {
   ) {
     return this.usersService.remove(id, tenantId);
   }
+
+  // ─── ROLES ──────────────────────────────────────────────
 
   // GET /api/v1/users/:id/roles
   @RequirePermission('configuracion', 'usuarios', 'ver')
@@ -112,7 +118,10 @@ export class UsersController {
     return this.usersService.removeRole(id, roleId, tenantId);
   }
 
+  // ─── PERMISOS ───────────────────────────────────────────
+
   // GET /api/v1/users/:id/permissions
+  // Retorna permisos combinados (rol + extra) con source indicator
   @RequirePermission('configuracion', 'usuarios', 'ver')
   @Get(':id/permissions')
   getUserPermissions(
@@ -120,5 +129,43 @@ export class UsersController {
     @CurrentUser('tenant_id') tenantId: string,
   ) {
     return this.usersService.getUserPermissions(id, tenantId);
+  }
+
+  // POST /api/v1/users/:id/permissions
+  // Agrega permisos extra individuales
+  @RequirePermission('configuracion', 'usuarios', 'editar')
+  @Post(':id/permissions')
+  assignExtraPermissions(
+    @Param('id') id: string,
+    @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body() body: { permission_ids: string[] },
+  ) {
+    return this.usersService.assignExtraPermissions(id, tenantId, body, userId);
+  }
+
+  // PUT /api/v1/users/:id/permissions
+  // Reemplaza todos los permisos extra
+  @RequirePermission('configuracion', 'usuarios', 'editar')
+  @Put(':id/permissions')
+  replaceExtraPermissions(
+    @Param('id') id: string,
+    @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body() body: { permission_ids: string[] },
+  ) {
+    return this.usersService.replaceExtraPermissions(id, tenantId, body, userId);
+  }
+
+  // DELETE /api/v1/users/:id/permissions/:permissionId
+  // Quita un permiso extra específico
+  @RequirePermission('configuracion', 'usuarios', 'editar')
+  @Delete(':id/permissions/:permissionId')
+  removeExtraPermission(
+    @Param('id') id: string,
+    @Param('permissionId') permissionId: string,
+    @CurrentUser('tenant_id') tenantId: string,
+  ) {
+    return this.usersService.removeExtraPermission(id, permissionId, tenantId);
   }
 }
