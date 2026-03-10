@@ -55,10 +55,18 @@ export class UsersService {
           last_login_at: true,
           created_at: true,
           area: { select: { id: true, name: true } },
-          sede: { select: { id: true, name: true } },
+          // ✅ sede va a través de user_sedes
+          user_sedes: {
+            select: {
+              sede: { select: { id: true, name: true } },
+              area: { select: { id: true, name: true } },
+            },
+          },
           user_roles: {
-            include: {
+            select: {
               role: { select: { id: true, name: true } },
+              assigned_at: true,
+              expires_at: true,
             },
           },
         },
@@ -69,7 +77,9 @@ export class UsersService {
     const formatted = users.map((user) => ({
       ...user,
       roles: user.user_roles.map((ur) => ur.role),
+      sedes: user.user_sedes.map((us) => us.sede),
       user_roles: undefined,
+      user_sedes: undefined,
     }));
 
     return {
@@ -104,9 +114,8 @@ export class UsersService {
         city: true,
         department: true,
         country: true,
-        phone: true,    
+        phone: true,
         area_id: true,
-        sede_id: true,
         signature_url: true,
         is_active: true,
         is_verified: true,
@@ -115,16 +124,27 @@ export class UsersService {
         created_at: true,
         updated_at: true,
         area: { select: { id: true, name: true } },
-        sede: { select: { id: true, name: true } },
+        // ✅ sede va a través de user_sedes
+        user_sedes: {
+          select: {
+            sede_id: true,
+            area_id: true,
+            assigned_at: true,
+            sede: { select: { id: true, name: true } },
+            area: { select: { id: true, name: true } },
+          },
+        },
         user_roles: {
-          include: {
+          select: {
+            assigned_at: true,
+            expires_at: true,
             role: {
               select: { id: true, name: true, description: true },
             },
           },
         },
         user_permissions: {
-          include: {
+          select: {
             permission: {
               select: { id: true, module: true, submodule: true, action: true },
             },
@@ -140,6 +160,7 @@ export class UsersService {
     return {
       ...user,
       roles: user.user_roles.map((ur) => ur.role),
+      sedes: user.user_sedes.map((us) => us.sede),
       extra_permissions: user.user_permissions.map((up) => ({
         id: up.permission.id,
         module: up.permission.module,
@@ -148,6 +169,7 @@ export class UsersService {
         full: `${up.permission.module}.${up.permission.submodule}.${up.permission.action}`,
       })),
       user_roles: undefined,
+      user_sedes: undefined,
       user_permissions: undefined,
     };
   }
@@ -172,7 +194,7 @@ export class UsersService {
     phone?: string;
     phone_alt?: string;
     area_id?: string;
-    sede_id?: string;
+    sede_id?: string;  // ✅ Se usa para crear user_sedes, no en users directamente
     role_id?: string;
     avatar_url?: string;
     signature_url?: string;
@@ -198,6 +220,7 @@ export class UsersService {
     const password_hash = await bcrypt.hash(data.password, 12);
 
     this.logger.log(`Creando usuario: ${data.email} (tenant: ${tenant_id})`);
+
     const user = await this.prisma.$transaction(async (tx) => {
       const newUser = await tx.users.create({
         data: {
@@ -217,9 +240,8 @@ export class UsersService {
           city: data.city,
           department: data.department,
           country: data.country || 'Colombia',
-          phone: data.phone,        
-          area_id: data.area_id || null,
-          sede_id: data.sede_id || null,
+          phone: data.phone,
+          area_id: data.area_id || null,   // ✅ area_id sí existe en users
           avatar_url: data.avatar_url || null,
           signature_url: data.signature_url || null,
         },
@@ -236,7 +258,18 @@ export class UsersService {
         },
       });
 
-      // Asignar rol (uno solo)
+      // ✅ sede se asigna a través de user_sedes
+      if (data.sede_id) {
+        await tx.user_sedes.create({
+          data: {
+            user_id: newUser.id,
+            sede_id: data.sede_id,
+            area_id: data.area_id || null,
+          },
+        });
+      }
+
+      // Asignar rol
       if (data.role_id) {
         await tx.user_roles.create({
           data: {
@@ -271,7 +304,7 @@ export class UsersService {
     phone?: string;
     phone_alt?: string;
     area_id?: string | null;
-    sede_id?: string | null;
+    sede_id?: string | null;  // ✅ Se usa para user_sedes
     is_active?: boolean;
     role_id?: string;
   }, updated_by?: string) {
@@ -300,9 +333,8 @@ export class UsersService {
           city: data.city,
           department: data.department,
           country: data.country,
-          phone: data.phone,          
-          area_id: data.area_id,
-          sede_id: data.sede_id,
+          phone: data.phone,
+          area_id: data.area_id,  // ✅ area_id sí existe en users
           is_active: data.is_active,
         },
         select: {
@@ -317,11 +349,32 @@ export class UsersService {
           is_active: true,
           updated_at: true,
           area: { select: { id: true, name: true } },
-          sede: { select: { id: true, name: true } },
+          // ✅ sede va a través de user_sedes
+          user_sedes: {
+            select: {
+              sede: { select: { id: true, name: true } },
+            },
+          },
         },
       });
 
-      // Si se envía rol, reemplazar (un solo rol)
+      // ✅ Actualizar sede a través de user_sedes
+      if (data.sede_id !== undefined) {
+        // Eliminar todas las sedes actuales del usuario
+        await tx.user_sedes.deleteMany({ where: { user_id: id } });
+
+        if (data.sede_id) {
+          await tx.user_sedes.create({
+            data: {
+              user_id: id,
+              sede_id: data.sede_id,
+              area_id: data.area_id || null,
+            },
+          });
+        }
+      }
+
+      // Reemplazar rol si se envía
       if (data.role_id !== undefined) {
         await tx.user_roles.deleteMany({ where: { user_id: id } });
 
@@ -336,7 +389,11 @@ export class UsersService {
         }
       }
 
-      return updatedUser;
+      return {
+        ...updatedUser,
+        sedes: updatedUser.user_sedes.map((us) => us.sede),
+        user_sedes: undefined,
+      };
     });
   }
 
@@ -371,7 +428,6 @@ export class UsersService {
     const password_hash = await bcrypt.hash(data.new_password, 12);
 
     await this.prisma.$transaction(async (tx) => {
-      // Guardar en historial
       await tx.password_history.create({
         data: {
           user_id: id,
@@ -380,7 +436,6 @@ export class UsersService {
         },
       });
 
-      // Actualizar contraseña
       await tx.users.update({
         where: { id },
         data: { password_hash },
@@ -418,7 +473,9 @@ export class UsersService {
       where: { id, tenant_id },
       select: {
         user_roles: {
-          include: {
+          select: {
+            assigned_at: true,
+            expires_at: true,
             role: { select: { id: true, name: true, description: true } },
           },
         },
@@ -662,4 +719,4 @@ export class UsersService {
       orderBy: { name: 'asc' },
     });
   }
-}
+}git
