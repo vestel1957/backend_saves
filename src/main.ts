@@ -1,11 +1,21 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const logger = new Logger('Bootstrap');
+
+  app.use((req, res, next) => {
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('multipart/form-data')) {
+      return next();
+    }
+    json({ limit: '10mb' })(req, res, next);
+  });
+  app.use(urlencoded({ limit: '10mb', extended: true }));
 
   // Validation pipe global - valida DTOs automáticamente
   app.useGlobalPipes(
