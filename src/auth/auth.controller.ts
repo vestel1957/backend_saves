@@ -83,8 +83,15 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
   @ApiResponse({ status: 200, description: 'Perfil con roles y permisos' })
-  getProfile(@CurrentUser('id') userId: string) {
-    return this.authService.getProfile(userId);
+  getProfile(@CurrentUser('id') userId: string, @Req() req: Request) {
+    return this.authService.getProfile(userId)
+      .then((profile) => ({
+        ...profile,
+        avatar_url: this.toAbsoluteUrl(profile.avatar_url, req),
+        tenant: profile.tenant
+          ? { ...profile.tenant, logo_url: this.toAbsoluteUrl(profile.tenant.logo_url, req) }
+          : profile.tenant,
+      }));
   }
 
   @Post('forgot-password')
@@ -114,5 +121,30 @@ export class AuthController {
   @ApiResponse({ status: 401, description: 'Código no verificado o expirado' })
   resetPassword(@Body() body: ResetPasswordDto) {
     return this.authService.resetPassword(body.email, body.code, body.new_password);
+  }
+
+  private toAbsoluteUrl(filePath?: string | null, req?: Request): string | null | undefined {
+    if (!filePath) return filePath;
+    if (/^https?:\/\//i.test(filePath)) return filePath;
+
+    const configuredBaseUrl = process.env.PUBLIC_BASE_URL?.trim();
+    const baseUrl = configuredBaseUrl
+      ? configuredBaseUrl.replace(/\/+$/, '')
+      : this.getRequestBaseUrl(req);
+
+    const normalizedPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+    return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+  }
+
+  private getRequestBaseUrl(req?: Request): string | undefined {
+    if (!req) return undefined;
+
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const protocol = typeof forwardedProto === 'string' ? forwardedProto : req.protocol;
+    const host = typeof forwardedHost === 'string' ? forwardedHost : req.get('host');
+
+    if (!host) return undefined;
+    return `${protocol}://${host}`.replace(/\/+$/, '');
   }
 }

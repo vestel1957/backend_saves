@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Put, Patch, Delete,
-  Body, Param, Query, UseGuards, UseInterceptors,
+  Body, Param, Query, UseGuards, UseInterceptors, Req, ForbiddenException,
   UploadedFiles, ParseUUIDPipe,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
@@ -12,6 +12,7 @@ import { PermissionGuard } from '../auth/guards/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../auth/decorators/user-current.decorator';
 import { CreateUserDto, UpdateUserDto, ChangePasswordDto, AssignRolesDto, AssignPermissionsDto } from './dto';
+import type { Request } from 'express';
 
 @ApiTags('Users')
 @ApiBearerAuth('access-token')
@@ -36,13 +37,17 @@ export class UsersController {
   findAll(
     @CurrentUser('tenant_id') tenantId: string,
     @Query() query: { page?: string; limit?: string; search?: string; is_active?: string },
+    @Req() req: Request,
   ) {
     return this.usersService.findAll(tenantId, {
       page: query.page ? parseInt(query.page) : undefined,
       limit: query.limit ? parseInt(query.limit) : undefined,
       search: query.search,
       is_active: query.is_active ? query.is_active === 'true' : undefined,
-    });
+    }).then((result) => ({
+      ...result,
+      data: result.data.map((user) => this.mapUserFileUrls(user, req)),
+    }));
   }
 
   @RequirePermission('configuracion', 'usuarios', 'ver')
@@ -69,8 +74,10 @@ export class UsersController {
   findOne(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @Req() req: Request,
   ) {
-    return this.usersService.findOne(id, tenantId);
+    return this.usersService.findOne(id, tenantId)
+      .then((user) => this.mapUserFileUrls(user, req));
   }
 
   @RequirePermission('configuracion', 'usuarios', 'crear')
@@ -90,6 +97,7 @@ export class UsersController {
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: CreateUserDto,
+    @Req() req: Request,
     @UploadedFiles() files: {
       avatar?: Express.Multer.File[];
       signature?: Express.Multer.File[];
@@ -110,12 +118,14 @@ export class UsersController {
       document_urls = this.uploadsService.saveFiles(files.documents, 'documents');
     }
 
-    return this.usersService.create(tenantId, {
+    const createdUser = await this.usersService.create(tenantId, {
       ...body,
       avatar_url,
       signature_url,
       document_urls,
     }, userId);
+
+    return this.mapUserFileUrls(createdUser, req);
   }
 
   @RequirePermission('configuracion', 'usuarios', 'editar')
@@ -136,6 +146,7 @@ export class UsersController {
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: UpdateUserDto,
+    @Req() req: Request,
     @UploadedFiles() files: {
       avatar?: Express.Multer.File[];
       signature?: Express.Multer.File[];
@@ -165,7 +176,8 @@ export class UsersController {
     if (signature_url) parsedBody.signature_url = signature_url;
     if (document_urls.length) parsedBody.document_urls = document_urls;
 
-    return this.usersService.update(id, tenantId, parsedBody, userId);
+    const updatedUser = await this.usersService.update(id, tenantId, parsedBody, userId);
+    return this.mapUserFileUrls(updatedUser, req);
   }
 
   @RequirePermission('configuracion', 'usuarios', 'eliminar')
@@ -192,6 +204,24 @@ export class UsersController {
     @CurrentUser('id') userId: string,
     @Body() body: ChangePasswordDto,
   ) {
+    return this.usersService.changePassword(id, tenantId, body, userId);
+  }
+
+  @Patch(':id/password/admin-reset')
+  @ApiOperation({ summary: 'Resetear contraseña de un usuario directamente (solo super admin)' })
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada por super admin' })
+  @ApiResponse({ status: 403, description: 'Solo disponible para super admin' })
+  adminResetPassword(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @CurrentUser('is_super_admin') isSuperAdmin: boolean,
+    @Body() body: ChangePasswordDto,
+  ) {
+    if (!isSuperAdmin) {
+      throw new ForbiddenException('Solo el super admin puede resetear contraseñas directamente');
+    }
+
     return this.usersService.changePassword(id, tenantId, body, userId);
   }
 
@@ -293,5 +323,41 @@ export class UsersController {
     @CurrentUser('tenant_id') tenantId: string,
   ) {
     return this.usersService.removeExtraPermission(id, permissionId, tenantId);
+  }
+
+  private mapUserFileUrls<T extends Record<string, any>>(user: T, req: Request): T {
+    return {
+      ...user,
+      avatar_url: this.toAbsoluteUrl(user.avatar_url, req),
+      signature_url: this.toAbsoluteUrl(user.signature_url, req),
+      document_urls: Array.isArray(user.document_urls)
+        ? user.document_urls.map((url: string) => this.toAbsoluteUrl(url, req))
+        : user.document_urls,
+    };
+  }
+
+  private toAbsoluteUrl(filePath?: string | null, req?: Request): string | null | undefined {
+    if (!filePath) return filePath;
+    if (/^https?:\/\//i.test(filePath)) return filePath;
+
+    const configuredBaseUrl = process.env.PUBLIC_BASE_URL?.trim();
+    const baseUrl = configuredBaseUrl
+      ? configuredBaseUrl.replace(/\/+$/, '')
+      : this.getRequestBaseUrl(req);
+
+    const normalizedPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+    return baseUrl ? `${baseUrl}${normalizedPath}` : normalizedPath;
+  }
+
+  private getRequestBaseUrl(req?: Request): string | undefined {
+    if (!req) return undefined;
+
+    const forwardedProto = req.headers['x-forwarded-proto'];
+    const forwardedHost = req.headers['x-forwarded-host'];
+    const protocol = typeof forwardedProto === 'string' ? forwardedProto : req.protocol;
+    const host = typeof forwardedHost === 'string' ? forwardedHost : req.get('host');
+
+    if (!host) return undefined;
+    return `${protocol}://${host}`.replace(/\/+$/, '');
   }
 }
