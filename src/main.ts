@@ -3,6 +3,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { BodyParserExceptionFilter } from './common/filters/body-parser-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -23,6 +24,7 @@ async function bootstrap() {
       transform: true,
     }),
   );
+  app.useGlobalFilters(new BodyParserExceptionFilter());
 
   // CORS desde variable de entorno
   const corsOrigins = process.env.CORS_ORIGINS

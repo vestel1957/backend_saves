@@ -76,7 +76,7 @@ export class UsersController {
   @RequirePermission('configuracion', 'usuarios', 'crear')
   @Post()
   @ApiOperation({ summary: 'Crear usuario con archivos opcionales' })
-  @ApiConsumes('multipart/form-data')
+  @ApiConsumes('application/json', 'multipart/form-data')
   @ApiResponse({ status: 201, description: 'Usuario creado' })
   @ApiResponse({ status: 409, description: 'Email o username ya existe' })
   @UseInterceptors(FileFieldsInterceptor([
@@ -121,7 +121,7 @@ export class UsersController {
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Patch(':id')
   @ApiOperation({ summary: 'Actualizar usuario con archivos opcionales' })
-  @ApiConsumes('multipart/form-data')
+  @ApiConsumes('application/json', 'multipart/form-data')
   @ApiResponse({ status: 200, description: 'Usuario actualizado' })
   @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
   @UseInterceptors(FileFieldsInterceptor([

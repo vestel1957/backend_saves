@@ -342,15 +342,15 @@ Base URL: `http://localhost:3001/api/v1`
 
 | Método | Ruta | Permiso | Descripción |
 |--------|------|---------|-------------|
-| GET | `/users` | ver | Listar usuarios (paginado + búsqueda) |
-| GET | `/users/:id` | ver | Ver un usuario |
-| POST | `/users` | crear | Crear usuario (opcionalmente con roles) |
-| PATCH | `/users/:id` | editar | Actualizar usuario |
-| DELETE | `/users/:id` | eliminar | Eliminar usuario |
-| GET | `/users/:id/roles` | ver | Ver roles del usuario |
-| POST | `/users/:id/roles` | editar | Asignar roles al usuario |
-| DELETE | `/users/:id/roles/:roleId` | editar | Quitar un rol |
-| GET | `/users/:id/permissions` | ver | Ver permisos del usuario |
+| GET | `/api/v1/users` | ver | Listar usuarios (paginado + búsqueda) |
+| GET | `/api/v1/users/:id` | ver | Ver un usuario |
+| POST | `/api/v1/users` | crear | Crear usuario. Acepta `application/json` o `multipart/form-data` |
+| PATCH | `/api/v1/users/:id` | editar | Actualizar usuario. Acepta `application/json` o `multipart/form-data` |
+| DELETE | `/api/v1/users/:id` | eliminar | Eliminar usuario |
+| GET | `/api/v1/users/:id/roles` | ver | Ver roles del usuario |
+| POST | `/api/v1/users/:id/roles` | editar | Asignar roles al usuario |
+| DELETE | `/api/v1/users/:id/roles/:roleId` | editar | Quitar un rol |
+| GET | `/api/v1/users/:id/permissions` | ver | Ver permisos del usuario |
 
 ### 🛡️ Roles — Protegidos (JWT + permiso `configuracion.roles.*`)
 
