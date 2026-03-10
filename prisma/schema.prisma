@@ -153,6 +153,7 @@ model areas {
   is_active  Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   tenant     tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_sedes user_sedes[]
   users      users[]
 
   @@unique([tenant_id, name])
@@ -166,7 +167,8 @@ model sedes {
   is_active  Boolean  @default(true)
   created_at DateTime @default(now()) @db.Timestamptz(6)
   tenant     tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  users      users[]
+  user_sedes           user_sedes[]
+
 
   @@unique([tenant_id, name])
   @@index([tenant_id], map: "idx_sedes_tenant")
@@ -185,6 +187,20 @@ model user_roles {
   @@id([user_id, role_id])
   @@index([role_id], map: "idx_user_roles_role")
   @@index([user_id], map: "idx_user_roles_user")
+}
+
+model user_sedes {
+  user_id     String   @db.Uuid
+  sede_id     String   @db.Uuid
+  area_id     String?  @db.Uuid
+  assigned_at DateTime @default(now()) @db.Timestamptz(6)
+  user        users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  area        areas?   @relation(fields: [area_id], references: [id], onUpdate: NoAction)
+  sede        sedes    @relation(fields: [sede_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, sede_id])
+  @@index([user_id], map: "idx_user_sedes_user")
+  @@index([sede_id], map: "idx_user_sedes_sede")
 }
 
 model user_sessions {
@@ -226,7 +242,7 @@ model users {
   country              String?                @default("Colombia") @db.VarChar(100)
   phone                String?                @db.VarChar(30)  
   area_id              String?                @db.Uuid
-  sede_id              String?                @db.Uuid
+  user_sedes           user_sedes[]
   signature_url        String?
   is_active            Boolean                @default(true)
   is_verified          Boolean                @default(false)
@@ -243,7 +259,6 @@ model users {
   sessions             user_sessions[]
   tenant               tenants?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   area                 areas?                 @relation(fields: [area_id], references: [id], onUpdate: NoAction)
-  sede                 sedes?                 @relation(fields: [sede_id], references: [id], onUpdate: NoAction)
   user_permissions     user_permissions[]     @relation("user_permissions")
   permissions_granted  user_permissions[]     @relation("permission_granted_by")
 
@@ -251,8 +266,7 @@ model users {
   @@index([email], map: "idx_users_email")
   @@index([tenant_id], map: "idx_users_tenant")
   @@index([username], map: "idx_users_username")
-  @@index([area_id], map: "idx_users_area")
-  @@index([sede_id], map: "idx_users_sede")
+  @@index([area_id], map: "idx_users_area")  
   @@index([document_number], map: "idx_users_document")
 }
 
