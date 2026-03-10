@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
@@ -7,9 +7,11 @@ import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private prisma: PrismaService,
-    private jwtService: JwtService, 
+    private jwtService: JwtService,
     private emailService: EmailService,
   ) {}
 
@@ -76,6 +78,7 @@ export class AuthService {
       },
     });
 
+    this.logger.log(`Usuario registrado: ${user.email} (tenant: ${data.tenant_id})`);
     return { message: 'Usuario registrado exitosamente', user };
   }
 
@@ -150,6 +153,7 @@ export class AuthService {
       data: { last_login_at: new Date() },
     });
 
+    this.logger.log(`Login exitoso: ${data.email} desde ${data.ip_address}`);
     return {
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
@@ -365,6 +369,7 @@ export class AuthService {
       }),
     ]);
 
+    this.logger.log(`Contraseña reseteada para: ${email}`);
     return { message: 'Contraseña actualizada exitosamente' };
   }
 

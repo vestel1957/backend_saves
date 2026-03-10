@@ -1,9 +1,11 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(private prisma: PrismaService) {}
 
   // ─── LISTAR USUARIOS ──────────────────────────────────
@@ -195,6 +197,7 @@ export class UsersService {
 
     const password_hash = await bcrypt.hash(data.password, 12);
 
+    this.logger.log(`Creando usuario: ${data.email} (tenant: ${tenant_id})`);
     const user = await this.prisma.$transaction(async (tx) => {
       const newUser = await tx.users.create({
         data: {
@@ -349,6 +352,7 @@ export class UsersService {
 
     await this.prisma.users.delete({ where: { id } });
 
+    this.logger.warn(`Usuario eliminado: ${id} (tenant: ${tenant_id})`);
     return { message: 'Usuario eliminado exitosamente' };
   }
 

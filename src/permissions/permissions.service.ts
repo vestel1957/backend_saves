@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class PermissionsService {
+  private readonly logger = new Logger(PermissionsService.name);
+
   constructor(private prisma: PrismaService) {}
 
   // ─── LISTAR PERMISOS ───────────────────────────────────

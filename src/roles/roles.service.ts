@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class RolesService {
+  private readonly logger = new Logger(RolesService.name);
+
   constructor(private prisma: PrismaService) {}
 
   // ─── LISTAR ROLES ──────────────────────────────────────
@@ -150,6 +152,7 @@ export class RolesService {
       return newRole;
     });
 
+    this.logger.log(`Rol creado: ${role.name} (tenant: ${tenant_id})`);
     return role;
   }
 
@@ -212,6 +215,7 @@ export class RolesService {
 
     await this.prisma.roles.delete({ where: { id } });
 
+    this.logger.warn(`Rol eliminado: ${id} (tenant: ${tenant_id})`);
     return { message: 'Rol eliminado exitosamente' };
   }
 
