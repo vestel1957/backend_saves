@@ -9,14 +9,12 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
 
-  // Body parser usando API de Nest, sin importar express directamente
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', {
     limit: '10mb',
     extended: true,
   });
 
-  // Validación global
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -24,22 +22,37 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
   app.useGlobalFilters(new BodyParserExceptionFilter());
 
-  // CORS desde variable de entorno
   const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
-    : ['http://localhost:3001'];
+    : [];
 
   app.enableCors({
-    origin: corsOrigins,
+    origin: (origin, callback) => {
+      logger.log(`Origin recibido: ${origin}`);
+
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const isAllowedByEnv = corsOrigins.includes(origin);
+      const isAllowedIpAnyPort = /^http:\/\/190\.14\.233\.186:\d+$/.test(origin);
+
+      if (isAllowedByEnv || isAllowedIpAnyPort) {
+        return callback(null, true);
+      }
+
+      logger.error(`Origin no permitido por CORS: ${origin}`);
+      return callback(new Error(`Origin no permitido por CORS: ${origin}`), false);
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
     credentials: true,
+    optionsSuccessStatus: 204,
   });
 
-  logger.log(`CORS habilitado para: ${corsOrigins.join(', ')}`);
-
-  // Swagger / OpenAPI
   const config = new DocumentBuilder()
     .setTitle('Dashboard Ecommerce API')
     .setDescription(
