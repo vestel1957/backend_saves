@@ -1,9 +1,13 @@
-import { Controller, Post, Get, Patch, Body, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, HttpCode, HttpStatus, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtGuard } from './guards/jwt.guard';
 import { CurrentUser } from './decorators/user-current.decorator';
+import { RegisterDto, LoginDto, RefreshTokenDto, ForgotPasswordDto, VerifyCodeDto, ResetPasswordDto } from './dto';
 import type { Request } from 'express';
 
+@ApiTags('Auth')
 @Controller('api/v1/auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
@@ -11,22 +15,21 @@ export class AuthController {
   // ── PÚBLICOS ────────────────────────────────────────
 
   @Post('register')
-  register(
-    @Body() body: {
-      email: string;
-      username: string;
-      password: string;
-      first_name?: string;
-      last_name?: string;
-      tenant_id: string;
-    },
-  ) {
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @ApiOperation({ summary: 'Registrar nuevo usuario' })
+  @ApiResponse({ status: 201, description: 'Usuario registrado exitosamente' })
+  @ApiResponse({ status: 409, description: 'Email o username ya existe' })
+  register(@Body() body: RegisterDto) {
     return this.authService.register(body);
   }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  login(@Body() body: { email: string; password: string }, @Req() req: Request) {
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
+  @ApiOperation({ summary: 'Iniciar sesión' })
+  @ApiResponse({ status: 200, description: 'Login exitoso, retorna tokens' })
+  @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
+  login(@Body() body: LoginDto, @Req() req: Request) {
     return this.authService.login({
       ...body,
       ip_address: req.ip,
@@ -36,7 +39,11 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  refreshTokens(@Body() body: { refresh_token: string }) {
+  @Throttle({ default: { ttl: 60000, limit: 20 } })
+  @ApiOperation({ summary: 'Refrescar tokens' })
+  @ApiResponse({ status: 200, description: 'Nuevos tokens generados' })
+  @ApiResponse({ status: 401, description: 'Refresh token inválido o expirado' })
+  refreshTokens(@Body() body: RefreshTokenDto) {
     return this.authService.refreshTokens(body.refresh_token);
   }
 
@@ -45,47 +52,67 @@ export class AuthController {
   @UseGuards(JwtGuard)
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  logout(@Body() body: { refresh_token: string }) {
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Cerrar sesión actual' })
+  @ApiResponse({ status: 200, description: 'Sesión cerrada' })
+  logout(@Body() body: RefreshTokenDto) {
     return this.authService.logout(body.refresh_token);
   }
 
   @UseGuards(JwtGuard)
   @Post('logout-all')
   @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Cerrar todas las sesiones' })
+  @ApiResponse({ status: 200, description: 'Todas las sesiones cerradas' })
   logoutAll(@CurrentUser('id') userId: string) {
     return this.authService.logoutAll(userId);
   }
 
   @UseGuards(JwtGuard)
   @Get('sessions')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Listar sesiones activas' })
+  @ApiResponse({ status: 200, description: 'Lista de sesiones' })
   getSessions(@CurrentUser('id') userId: string) {
     return this.authService.getSessions(userId);
   }
 
   @UseGuards(JwtGuard)
   @Get('me')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Obtener perfil del usuario autenticado' })
+  @ApiResponse({ status: 200, description: 'Perfil con roles y permisos' })
   getProfile(@CurrentUser('id') userId: string) {
     return this.authService.getProfile(userId);
   }
 
-  // POST /api/v1/auth/forgot-password
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
-  forgotPassword(@Body() body: { email: string }) {
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @ApiOperation({ summary: 'Solicitar código de recuperación de contraseña' })
+  @ApiResponse({ status: 200, description: 'Código enviado si el email existe' })
+  forgotPassword(@Body() body: ForgotPasswordDto) {
     return this.authService.forgotPassword(body.email);
   }
 
-  // POST /api/v1/auth/verify-code
   @Post('verify-code')
   @HttpCode(HttpStatus.OK)
-  verifyResetCode(@Body() body: { email: string; code: string }) {
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @ApiOperation({ summary: 'Verificar código de recuperación' })
+  @ApiResponse({ status: 200, description: 'Código verificado' })
+  @ApiResponse({ status: 401, description: 'Código inválido o expirado' })
+  verifyResetCode(@Body() body: VerifyCodeDto) {
     return this.authService.verifyResetCode(body.email, body.code);
   }
 
-  // POST /api/v1/auth/reset-password
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
-  resetPassword(@Body() body: { email: string; code: string; new_password: string }) {
+  @Throttle({ default: { ttl: 60000, limit: 3 } })
+  @ApiOperation({ summary: 'Restablecer contraseña con código verificado' })
+  @ApiResponse({ status: 200, description: 'Contraseña actualizada' })
+  @ApiResponse({ status: 401, description: 'Código no verificado o expirado' })
+  resetPassword(@Body() body: ResetPasswordDto) {
     return this.authService.resetPassword(body.email, body.code, body.new_password);
   }
 }
