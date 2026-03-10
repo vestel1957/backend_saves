@@ -1,23 +1,21 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import { json, urlencoded } from 'express';
+import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
 
-  app.use((req, res, next) => {
-    const contentType = req.headers['content-type'] || '';
-    if (contentType.includes('multipart/form-data')) {
-      return next();
-    }
-    json({ limit: '10mb' })(req, res, next);
+  // Body parser usando API de Nest, sin importar express directamente
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', {
+    limit: '10mb',
+    extended: true,
   });
-  app.use(urlencoded({ limit: '10mb', extended: true }));
 
-  // Validation pipe global - valida DTOs automáticamente
+  // Validación global
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -42,7 +40,9 @@ async function bootstrap() {
   // Swagger / OpenAPI
   const config = new DocumentBuilder()
     .setTitle('Dashboard Ecommerce API')
-    .setDescription('API REST para gestión de usuarios, roles, permisos y autenticación multi-tenant')
+    .setDescription(
+      'API REST para gestión de usuarios, roles, permisos y autenticación multi-tenant',
+    )
     .setVersion('1.0')
     .addBearerAuth(
       { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
@@ -63,4 +63,5 @@ async function bootstrap() {
   logger.log(`API corriendo en http://0.0.0.0:${port}`);
   logger.log(`Swagger docs en http://0.0.0.0:${port}/api/docs`);
 }
+
 bootstrap();
