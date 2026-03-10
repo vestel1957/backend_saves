@@ -138,10 +138,38 @@ model tenants {
   roles          roles[]
   sessions       user_sessions[]
   users          users[]
+  areas          areas[]
+  sedes          sedes[]
 
   @@index([is_active], map: "idx_tenants_active")
   @@index([plan], map: "idx_tenants_plan")
   @@index([slug], map: "idx_tenants_slug")
+}
+
+model areas {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(100)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  tenant     tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id], map: "idx_areas_tenant")
+}
+
+model sedes {
+  id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  tenant_id  String   @db.Uuid
+  name       String   @db.VarChar(100)
+  is_active  Boolean  @default(true)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  tenant     tenants  @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  users      users[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id], map: "idx_sedes_tenant")
 }
 
 model user_roles {
@@ -186,6 +214,20 @@ model users {
   first_name           String?                @db.VarChar(100)
   last_name            String?                @db.VarChar(100)
   avatar_url           String?
+  document_number      String?                @db.VarChar(30)
+  document_type        String?                @default("CC") @db.VarChar(10)
+  hire_date            DateTime?              @db.Date
+  blood_type           String?                @db.VarChar(5)
+  eps                  String?                @db.VarChar(100)
+  pension_fund         String?                @db.VarChar(100)
+  address              String?
+  city                 String?                @db.VarChar(100)
+  department           String?                @db.VarChar(100)
+  country              String?                @default("Colombia") @db.VarChar(100)
+  phone                String?                @db.VarChar(30)  
+  area_id              String?                @db.Uuid
+  sede_id              String?                @db.Uuid
+  signature_url        String?
   is_active            Boolean                @default(true)
   is_verified          Boolean                @default(false)
   is_super_admin       Boolean                @default(false)
@@ -200,23 +242,28 @@ model users {
   user_roles           user_roles[]           @relation("user_roles")
   sessions             user_sessions[]
   tenant               tenants?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user_permissions     user_permissions[]  @relation("user_permissions")
-  permissions_granted  user_permissions[]  @relation("permission_granted_by")
+  area                 areas?                 @relation(fields: [area_id], references: [id], onUpdate: NoAction)
+  sede                 sedes?                 @relation(fields: [sede_id], references: [id], onUpdate: NoAction)
+  user_permissions     user_permissions[]     @relation("user_permissions")
+  permissions_granted  user_permissions[]     @relation("permission_granted_by")
 
   @@index([tenant_id, is_active], map: "idx_users_active")
   @@index([email], map: "idx_users_email")
   @@index([tenant_id], map: "idx_users_tenant")
   @@index([username], map: "idx_users_username")
+  @@index([area_id], map: "idx_users_area")
+  @@index([sede_id], map: "idx_users_sede")
+  @@index([document_number], map: "idx_users_document")
 }
 
 model user_permissions {
-  user_id       String      @db.Uuid
-  permission_id String      @db.Uuid
-  granted_at    DateTime    @default(now()) @db.Timestamptz(6)
-  granted_by    String?     @db.Uuid
-  granted_by_user users?    @relation("permission_granted_by", fields: [granted_by], references: [id], onUpdate: NoAction)
-  permission    permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user          users       @relation("user_permissions", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user_id         String      @db.Uuid
+  permission_id   String      @db.Uuid
+  granted_at      DateTime    @default(now()) @db.Timestamptz(6)
+  granted_by      String?     @db.Uuid
+  granted_by_user users?      @relation("permission_granted_by", fields: [granted_by], references: [id], onUpdate: NoAction)
+  permission      permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user            users       @relation("user_permissions", fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([user_id, permission_id])
   @@index([permission_id], map: "idx_user_permissions_perm")

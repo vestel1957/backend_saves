@@ -29,6 +29,7 @@ export class UsersService {
         { username: { contains: query.search, mode: 'insensitive' } },
         { first_name: { contains: query.search, mode: 'insensitive' } },
         { last_name: { contains: query.search, mode: 'insensitive' } },
+        { document_number: { contains: query.search, mode: 'insensitive' } },
       ];
     }
 
@@ -45,10 +46,14 @@ export class UsersService {
           first_name: true,
           last_name: true,
           avatar_url: true,
+          document_number: true,
+          phone: true,
           is_active: true,
           is_verified: true,
           last_login_at: true,
           created_at: true,
+          area: { select: { id: true, name: true } },
+          sede: { select: { id: true, name: true } },
           user_roles: {
             include: {
               role: { select: { id: true, name: true } },
@@ -87,12 +92,28 @@ export class UsersService {
         first_name: true,
         last_name: true,
         avatar_url: true,
+        document_number: true,
+        document_type: true,
+        hire_date: true,
+        blood_type: true,
+        eps: true,
+        pension_fund: true,
+        address: true,
+        city: true,
+        department: true,
+        country: true,
+        phone: true,    
+        area_id: true,
+        sede_id: true,
+        signature_url: true,
         is_active: true,
         is_verified: true,
         is_super_admin: true,
         last_login_at: true,
         created_at: true,
         updated_at: true,
+        area: { select: { id: true, name: true } },
+        sede: { select: { id: true, name: true } },
         user_roles: {
           include: {
             role: {
@@ -136,8 +157,24 @@ export class UsersService {
     password: string;
     first_name?: string;
     last_name?: string;
-    role_ids?: string[];
-    extra_permission_ids?: string[];
+    document_number?: string;
+    document_type?: string;
+    hire_date?: string;
+    blood_type?: string;
+    eps?: string;
+    pension_fund?: string;
+    address?: string;
+    city?: string;
+    department?: string;
+    country?: string;
+    phone?: string;
+    phone_alt?: string;
+    area_id?: string;
+    sede_id?: string;
+    role_id?: string;
+    avatar_url?: string;
+    signature_url?: string;
+    document_urls?: string[];
   }, assigned_by: string) {
     const existing = await this.prisma.users.findFirst({
       where: {
@@ -167,6 +204,21 @@ export class UsersService {
           password_hash,
           first_name: data.first_name,
           last_name: data.last_name,
+          document_number: data.document_number,
+          document_type: data.document_type || 'CC',
+          hire_date: data.hire_date ? new Date(data.hire_date) : null,
+          blood_type: data.blood_type,
+          eps: data.eps,
+          pension_fund: data.pension_fund,
+          address: data.address,
+          city: data.city,
+          department: data.department,
+          country: data.country || 'Colombia',
+          phone: data.phone,        
+          area_id: data.area_id || null,
+          sede_id: data.sede_id || null,
+          avatar_url: data.avatar_url || null,
+          signature_url: data.signature_url || null,
         },
         select: {
           id: true,
@@ -174,30 +226,21 @@ export class UsersService {
           username: true,
           first_name: true,
           last_name: true,
+          document_number: true,
+          phone: true,
           is_active: true,
           created_at: true,
         },
       });
 
-      // Asignar roles
-      if (data.role_ids && data.role_ids.length > 0) {
-        await tx.user_roles.createMany({
-          data: data.role_ids.map((role_id) => ({
+      // Asignar rol (uno solo)
+      if (data.role_id) {
+        await tx.user_roles.create({
+          data: {
             user_id: newUser.id,
-            role_id,
+            role_id: data.role_id,
             assigned_by,
-          })),
-        });
-      }
-
-      // Asignar permisos extra individuales
-      if (data.extra_permission_ids && data.extra_permission_ids.length > 0) {
-        await tx.user_permissions.createMany({
-          data: data.extra_permission_ids.map((permission_id) => ({
-            user_id: newUser.id,
-            permission_id,
-            granted_by: assigned_by,
-          })),
+          },
         });
       }
 
@@ -212,9 +255,22 @@ export class UsersService {
     first_name?: string;
     last_name?: string;
     avatar_url?: string;
+    document_number?: string;
+    document_type?: string;
+    hire_date?: string;
+    blood_type?: string;
+    eps?: string;
+    pension_fund?: string;
+    address?: string;
+    city?: string;
+    department?: string;
+    country?: string;
+    phone?: string;
+    phone_alt?: string;
+    area_id?: string | null;
+    sede_id?: string | null;
     is_active?: boolean;
-    role_ids?: string[];
-    extra_permission_ids?: string[];
+    role_id?: string;
   }, updated_by?: string) {
     const user = await this.prisma.users.findFirst({
       where: { id, tenant_id },
@@ -225,13 +281,25 @@ export class UsersService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Actualizar info personal
       const updatedUser = await tx.users.update({
         where: { id },
         data: {
           first_name: data.first_name,
           last_name: data.last_name,
           avatar_url: data.avatar_url,
+          document_number: data.document_number,
+          document_type: data.document_type,
+          hire_date: data.hire_date ? new Date(data.hire_date) : undefined,
+          blood_type: data.blood_type,
+          eps: data.eps,
+          pension_fund: data.pension_fund,
+          address: data.address,
+          city: data.city,
+          department: data.department,
+          country: data.country,
+          phone: data.phone,          
+          area_id: data.area_id,
+          sede_id: data.sede_id,
           is_active: data.is_active,
         },
         select: {
@@ -240,38 +308,27 @@ export class UsersService {
           username: true,
           first_name: true,
           last_name: true,
+          document_number: true,
+          phone: true,
           avatar_url: true,
           is_active: true,
           updated_at: true,
+          area: { select: { id: true, name: true } },
+          sede: { select: { id: true, name: true } },
         },
       });
 
-      // Si se envían roles, reemplazar todos
-      if (data.role_ids !== undefined) {
+      // Si se envía rol, reemplazar (un solo rol)
+      if (data.role_id !== undefined) {
         await tx.user_roles.deleteMany({ where: { user_id: id } });
 
-        if (data.role_ids.length > 0) {
-          await tx.user_roles.createMany({
-            data: data.role_ids.map((role_id) => ({
+        if (data.role_id) {
+          await tx.user_roles.create({
+            data: {
               user_id: id,
-              role_id,
+              role_id: data.role_id,
               assigned_by: updated_by,
-            })),
-          });
-        }
-      }
-
-      // Si se envían permisos extra, reemplazar todos
-      if (data.extra_permission_ids !== undefined) {
-        await tx.user_permissions.deleteMany({ where: { user_id: id } });
-
-        if (data.extra_permission_ids.length > 0) {
-          await tx.user_permissions.createMany({
-            data: data.extra_permission_ids.map((permission_id) => ({
-              user_id: id,
-              permission_id,
-              granted_by: updated_by,
-            })),
+            },
           });
         }
       }
@@ -293,6 +350,62 @@ export class UsersService {
     await this.prisma.users.delete({ where: { id } });
 
     return { message: 'Usuario eliminado exitosamente' };
+  }
+
+  // ─── CAMBIAR CONTRASEÑA ────────────────────────────────
+  async changePassword(id: string, tenant_id: string, data: {
+    new_password: string;
+  }, changed_by: string) {
+    const user = await this.prisma.users.findFirst({
+      where: { id, tenant_id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const password_hash = await bcrypt.hash(data.new_password, 12);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Guardar en historial
+      await tx.password_history.create({
+        data: {
+          user_id: id,
+          password_hash: user.password_hash,
+          changed_by,
+        },
+      });
+
+      // Actualizar contraseña
+      await tx.users.update({
+        where: { id },
+        data: { password_hash },
+      });
+    });
+
+    return { message: 'Contraseña actualizada exitosamente' };
+  }
+
+  // ─── DESACTIVAR / ACTIVAR USUARIO ─────────────────────
+  async toggleStatus(id: string, tenant_id: string) {
+    const user = await this.prisma.users.findFirst({
+      where: { id, tenant_id },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const updated = await this.prisma.users.update({
+      where: { id },
+      data: { is_active: !user.is_active },
+      select: { id: true, is_active: true },
+    });
+
+    return {
+      message: updated.is_active ? 'Usuario activado' : 'Usuario desactivado',
+      is_active: updated.is_active,
+    };
   }
 
   // ─── ROLES DEL USUARIO ─────────────────────────────────
@@ -377,7 +490,6 @@ export class UsersService {
   }
 
   // ─── PERMISOS DEL USUARIO (COMBINADOS) ─────────────────
-  // Retorna permisos del rol + permisos extra individuales
   async getUserPermissions(id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
       where: { id, tenant_id },
@@ -387,7 +499,6 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Permisos heredados de los roles
     const rolePermissions = await this.prisma.$queryRaw`
       SELECT DISTINCT p.id as permission_id, p.module, p.submodule, p.action
       FROM user_roles ur
@@ -397,7 +508,6 @@ export class UsersService {
       AND p.tenant_id = ${tenant_id}::uuid
     ` as { permission_id: string; module: string; submodule: string; action: string }[];
 
-    // Permisos extra individuales del usuario
     const extraPermissions = await this.prisma.user_permissions.findMany({
       where: { user_id: id },
       include: {
@@ -425,7 +535,6 @@ export class UsersService {
       source: 'user' as const,
     }));
 
-    // Combinar sin duplicados (prioridad al source)
     const allPerms: Array<{ id: string; module: string; submodule: string; action: string; full: string; source: 'role' | 'user' }> = [...rolePermsFormatted];
     for (const extra of extraPermsFormatted) {
       if (!allPerms.some((p) => p.id === extra.id)) {
@@ -448,7 +557,6 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Verificar que los permisos pertenecen al tenant
     const permissions = await this.prisma.permissions.findMany({
       where: {
         id: { in: data.permission_ids },
@@ -492,7 +600,6 @@ export class UsersService {
   }
 
   // ─── REEMPLAZAR PERMISOS EXTRA ─────────────────────────
-  // Reemplaza todos los permisos extra de un usuario
   async replaceExtraPermissions(id: string, tenant_id: string, data: {
     permission_ids: string[];
   }, granted_by: string) {
@@ -504,7 +611,6 @@ export class UsersService {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Verificar permisos del tenant
     if (data.permission_ids.length > 0) {
       const permissions = await this.prisma.permissions.findMany({
         where: {
@@ -519,10 +625,8 @@ export class UsersService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      // Borrar todos los extra actuales
       await tx.user_permissions.deleteMany({ where: { user_id: id } });
 
-      // Crear los nuevos
       if (data.permission_ids.length > 0) {
         await tx.user_permissions.createMany({
           data: data.permission_ids.map((permission_id) => ({
@@ -535,5 +639,23 @@ export class UsersService {
     });
 
     return { message: 'Permisos extra actualizados exitosamente' };
+  }
+
+  // ─── LISTAR ÁREAS ──────────────────────────────────────
+  async getAreas(tenant_id: string) {
+    return this.prisma.areas.findMany({
+      where: { tenant_id, is_active: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  // ─── LISTAR SEDES ──────────────────────────────────────
+  async getSedes(tenant_id: string) {
+    return this.prisma.sedes.findMany({
+      where: { tenant_id, is_active: true },
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
   }
 }

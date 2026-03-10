@@ -1,5 +1,11 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Post, Put, Patch, Delete,
+  Body, Param, Query, UseGuards, UseInterceptors,
+  UploadedFiles,
+} from '@nestjs/common';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -8,9 +14,13 @@ import { CurrentUser } from '../auth/decorators/user-current.decorator';
 @Controller('api/v1/users')
 @UseGuards(JwtGuard, PermissionGuard)
 export class UsersController {
-  constructor(private usersService: UsersService) {}
+  constructor(
+    private usersService: UsersService,
+    private uploadsService: UploadsService,
+  ) {}
 
-  // GET /api/v1/users?page=1&limit=10&search=juan
+  // ─── CRUD ───────────────────────────────────────────────
+
   @RequirePermission('configuracion', 'usuarios', 'ver')
   @Get()
   findAll(
@@ -25,7 +35,6 @@ export class UsersController {
     });
   }
 
-  // GET /api/v1/users/:id
   @RequirePermission('configuracion', 'usuarios', 'ver')
   @Get(':id')
   findOne(
@@ -35,45 +44,95 @@ export class UsersController {
     return this.usersService.findOne(id, tenantId);
   }
 
-  // POST /api/v1/users
+  // POST /api/v1/users (multipart/form-data con archivos)
   @RequirePermission('configuracion', 'usuarios', 'crear')
   @Post()
-  create(
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'avatar', maxCount: 1 },
+    { name: 'signature', maxCount: 1 },
+    { name: 'documents', maxCount: 10 },
+  ], {
+    limits: { fileSize: 5 * 1024 * 1024 },
+  }))
+  async create(
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
-    @Body() body: {
-      email: string;
-      username: string;
-      password: string;
-      first_name?: string;
-      last_name?: string;
-      role_ids?: string[];
-      extra_permission_ids?: string[];
+    @Body() body: any,
+    @UploadedFiles() files: {
+      avatar?: Express.Multer.File[];
+      signature?: Express.Multer.File[];
+      documents?: Express.Multer.File[];
     },
   ) {
-    return this.usersService.create(tenantId, body, userId);
+    let avatar_url: string | undefined;
+    let signature_url: string | undefined;
+    let document_urls: string[] = [];
+
+    if (files?.avatar?.[0]) {
+      avatar_url = this.uploadsService.saveFile(files.avatar[0], 'avatars');
+    }
+    if (files?.signature?.[0]) {
+      signature_url = this.uploadsService.saveFile(files.signature[0], 'signatures');
+    }
+    if (files?.documents?.length) {
+      document_urls = this.uploadsService.saveFiles(files.documents, 'documents');
+    }
+
+    return this.usersService.create(tenantId, {
+      ...body,
+      avatar_url,
+      signature_url,
+      document_urls,
+    }, userId);
   }
 
-  // PATCH /api/v1/users/:id
+  // PATCH /api/v1/users/:id (multipart/form-data con archivos)
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Patch(':id')
-  update(
+  @UseInterceptors(FileFieldsInterceptor([
+    { name: 'avatar', maxCount: 1 },
+    { name: 'signature', maxCount: 1 },
+    { name: 'documents', maxCount: 10 },
+  ], {
+    limits: { fileSize: 5 * 1024 * 1024 },
+  }))
+  async update(
     @Param('id') id: string,
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
-    @Body() body: {
-      first_name?: string;
-      last_name?: string;
-      avatar_url?: string;
-      is_active?: boolean;
-      role_ids?: string[];
-      extra_permission_ids?: string[];
+    @Body() body: any,
+    @UploadedFiles() files: {
+      avatar?: Express.Multer.File[];
+      signature?: Express.Multer.File[];
+      documents?: Express.Multer.File[];
     },
   ) {
-    return this.usersService.update(id, tenantId, body, userId);
+    let avatar_url: string | undefined;
+    let signature_url: string | undefined;
+    let document_urls: string[] = [];
+
+    if (files?.avatar?.[0]) {
+      avatar_url = this.uploadsService.saveFile(files.avatar[0], 'avatars');
+    }
+    if (files?.signature?.[0]) {
+      signature_url = this.uploadsService.saveFile(files.signature[0], 'signatures');
+    }
+    if (files?.documents?.length) {
+      document_urls = this.uploadsService.saveFiles(files.documents, 'documents');
+    }
+
+    const parsedBody = {
+      ...body,
+      is_active: body.is_active !== undefined ? body.is_active === 'true' : undefined,
+    };
+
+    if (avatar_url) parsedBody.avatar_url = avatar_url;
+    if (signature_url) parsedBody.signature_url = signature_url;
+    if (document_urls.length) parsedBody.document_urls = document_urls;
+
+    return this.usersService.update(id, tenantId, parsedBody, userId);
   }
 
-  // DELETE /api/v1/users/:id
   @RequirePermission('configuracion', 'usuarios', 'eliminar')
   @Delete(':id')
   remove(
@@ -83,9 +142,30 @@ export class UsersController {
     return this.usersService.remove(id, tenantId);
   }
 
+  // ─── ACCIONES ESPECIALES ────────────────────────────────
+
+  @RequirePermission('configuracion', 'usuarios', 'editar')
+  @Patch(':id/password')
+  changePassword(
+    @Param('id') id: string,
+    @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Body() body: { new_password: string },
+  ) {
+    return this.usersService.changePassword(id, tenantId, body, userId);
+  }
+
+  @RequirePermission('configuracion', 'usuarios', 'editar')
+  @Patch(':id/toggle-status')
+  toggleStatus(
+    @Param('id') id: string,
+    @CurrentUser('tenant_id') tenantId: string,
+  ) {
+    return this.usersService.toggleStatus(id, tenantId);
+  }
+
   // ─── ROLES ──────────────────────────────────────────────
 
-  // GET /api/v1/users/:id/roles
   @RequirePermission('configuracion', 'usuarios', 'ver')
   @Get(':id/roles')
   getUserRoles(
@@ -95,7 +175,6 @@ export class UsersController {
     return this.usersService.getUserRoles(id, tenantId);
   }
 
-  // POST /api/v1/users/:id/roles
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Post(':id/roles')
   assignRoles(
@@ -107,7 +186,6 @@ export class UsersController {
     return this.usersService.assignRoles(id, tenantId, body, userId);
   }
 
-  // DELETE /api/v1/users/:id/roles/:roleId
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Delete(':id/roles/:roleId')
   removeRole(
@@ -120,8 +198,6 @@ export class UsersController {
 
   // ─── PERMISOS ───────────────────────────────────────────
 
-  // GET /api/v1/users/:id/permissions
-  // Retorna permisos combinados (rol + extra) con source indicator
   @RequirePermission('configuracion', 'usuarios', 'ver')
   @Get(':id/permissions')
   getUserPermissions(
@@ -131,8 +207,6 @@ export class UsersController {
     return this.usersService.getUserPermissions(id, tenantId);
   }
 
-  // POST /api/v1/users/:id/permissions
-  // Agrega permisos extra individuales
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Post(':id/permissions')
   assignExtraPermissions(
@@ -144,8 +218,6 @@ export class UsersController {
     return this.usersService.assignExtraPermissions(id, tenantId, body, userId);
   }
 
-  // PUT /api/v1/users/:id/permissions
-  // Reemplaza todos los permisos extra
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Put(':id/permissions')
   replaceExtraPermissions(
@@ -157,8 +229,6 @@ export class UsersController {
     return this.usersService.replaceExtraPermissions(id, tenantId, body, userId);
   }
 
-  // DELETE /api/v1/users/:id/permissions/:permissionId
-  // Quita un permiso extra específico
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Delete(':id/permissions/:permissionId')
   removeExtraPermission(
@@ -167,5 +237,19 @@ export class UsersController {
     @CurrentUser('tenant_id') tenantId: string,
   ) {
     return this.usersService.removeExtraPermission(id, permissionId, tenantId);
+  }
+
+  // ─── CATÁLOGOS ──────────────────────────────────────────
+
+  @RequirePermission('configuracion', 'usuarios', 'ver')
+  @Get('catalogs/areas')
+  getAreas(@CurrentUser('tenant_id') tenantId: string) {
+    return this.usersService.getAreas(tenantId);
+  }
+
+  @RequirePermission('configuracion', 'usuarios', 'ver')
+  @Get('catalogs/sedes')
+  getSedes(@CurrentUser('tenant_id') tenantId: string) {
+    return this.usersService.getSedes(tenantId);
   }
 }
