@@ -1,7 +1,13 @@
-import { IsString, MaxLength, IsOptional, IsUUID, IsDateString, IsBooleanString } from 'class-validator';
+import { IsString, MaxLength, IsOptional, IsUUID, IsDateString, IsBooleanString, IsEmail } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class UpdateUserDto {
+  @ApiPropertyOptional({ example: 'usuario@ejemplo.com' })
+  @IsOptional()
+  @IsEmail()
+  @MaxLength(255)
+  email?: string;
+
   @ApiPropertyOptional({ example: 'Juan' })
   @IsOptional()
   @IsString()

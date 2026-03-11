@@ -62,4 +62,38 @@ export class EmailService implements OnModuleInit {
       throw error;
     }
   }
+
+  async sendWelcomeCredentials(email: string, password: string, name?: string) {
+    const mailOptions = {
+      from: `"${process.env.SMTP_FROM_NAME || 'Dashboard Ecommerce'}" <${process.env.SMTP_USER || 'noreply@app.com'}>`,
+      to: email,
+      subject: 'Bienvenido - Tus credenciales de acceso',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
+          <h2 style="color: #333; text-align: center;">Bienvenido al sistema</h2>
+          <p>Hola${name ? ` ${name}` : ''},</p>
+          <p>Se ha creado tu cuenta. A continuación tus credenciales de acceso:</p>
+          <div style="background: #f4f4f4; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <p style="margin: 5px 0;"><strong>Email:</strong> ${email}</p>
+            <p style="margin: 5px 0;"><strong>Contraseña temporal:</strong></p>
+            <div style="background: #fff; padding: 10px; text-align: center; border-radius: 4px; margin-top: 8px;">
+              <span style="font-size: 18px; font-weight: bold; letter-spacing: 2px; color: #333;">${password}</span>
+            </div>
+          </div>
+          <p style="color: #e74c3c; font-size: 14px;"><strong>Importante:</strong> Te recomendamos cambiar tu contraseña después de iniciar sesión.</p>
+          <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+          <p style="color: #999; font-size: 12px; text-align: center;">${process.env.SMTP_FROM_NAME || 'Dashboard Ecommerce'}</p>
+        </div>
+      `,
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      this.logger.log(`Email de bienvenida enviado: ${info.messageId}`);
+      return info;
+    } catch (error) {
+      this.logger.error('Error enviando email de bienvenida', error);
+      throw error;
+    }
+  }
 }

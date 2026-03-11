@@ -1,4 +1,4 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsUUID, IsDateString } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsOptional, IsUUID, IsDateString, IsBooleanString, IsArray } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -13,10 +13,10 @@ export class CreateUserDto {
   @MaxLength(50)
   username: string;
 
-  @ApiProperty({ example: 'Password123!' })
-  @IsString()
-  @MinLength(8, { message: 'La contraseña debe tener al menos 8 caracteres' })
-  password: string;
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsBooleanString()
+  is_active?: string;
 
   @ApiPropertyOptional({ example: 'Juan' })
   @IsOptional()
@@ -97,11 +97,16 @@ export class CreateUserDto {
   @Transform(({ value }) => value || undefined) // 👈 agrega en area_id, sede_id y role_id
   area_id?: string;
 
-  @ApiPropertyOptional({ description: 'UUID de la sede' })
+  @ApiPropertyOptional({ description: 'Array de UUIDs de sedes', example: ['uuid1', 'uuid2'] })
   @IsOptional()
-  @IsUUID('4')
-  @Transform(({ value }) => value || undefined)
-  sede_id?: string;
+  @IsArray()
+  @IsUUID('4', { each: true })
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.filter(Boolean);
+    if (typeof value === 'string') return [value];
+    return undefined;
+  })
+  sede_ids?: string[];
 
   @ApiPropertyOptional({ description: 'UUID del rol a asignar' })
   @IsOptional()

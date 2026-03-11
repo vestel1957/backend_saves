@@ -1,12 +1,29 @@
 import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private emailService: EmailService,
+  ) {}
+
+  private generateTemporaryPassword(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const special = '!@#$%&*';
+    let password = '';
+    for (let i = 0; i < 10; i++) {
+      password += chars.charAt(crypto.randomInt(chars.length));
+    }
+    password += special.charAt(crypto.randomInt(special.length));
+    password += crypto.randomInt(10).toString();
+    return password;
+  }
 
   // ─── LISTAR USUARIOS ──────────────────────────────────
   async findAll(tenant_id: string, query: {
@@ -178,7 +195,7 @@ export class UsersService {
   async create(tenant_id: string, data: {
     email: string;
     username: string;
-    password: string;
+    password?: string;
     first_name?: string;
     last_name?: string;
     document_number?: string;
@@ -194,7 +211,7 @@ export class UsersService {
     phone?: string;
     phone_alt?: string;
     area_id?: string;
-    sede_id?: string;  // ✅ Se usa para crear user_sedes, no en users directamente
+    sede_ids?: string[];  // ✅ Se usa para crear user_sedes, no en users directamente
     role_id?: string;
     avatar_url?: string;
     signature_url?: string;
@@ -217,7 +234,8 @@ export class UsersService {
       );
     }
 
-    const password_hash = await bcrypt.hash(data.password, 12);
+    const plainPassword = data.password || this.generateTemporaryPassword();
+    const password_hash = await bcrypt.hash(plainPassword, 12);
 
     this.logger.log(`Creando usuario: ${data.email} (tenant: ${tenant_id})`);
 
@@ -258,14 +276,14 @@ export class UsersService {
         },
       });
 
-      // ✅ sede se asigna a través de user_sedes
-      if (data.sede_id) {
-        await tx.user_sedes.create({
-          data: {
+      // ✅ sedes se asignan a través de user_sedes
+      if (data.sede_ids?.length) {
+        await tx.user_sedes.createMany({
+          data: data.sede_ids.map((sede_id) => ({
             user_id: newUser.id,
-            sede_id: data.sede_id,
+            sede_id,
             area_id: data.area_id || null,
-          },
+          })),
         });
       }
 
@@ -283,11 +301,17 @@ export class UsersService {
       return newUser;
     });
 
+    // Enviar credenciales por correo (no bloquea la respuesta)
+    this.emailService
+      .sendWelcomeCredentials(data.email, plainPassword, data.first_name)
+      .catch((err) => this.logger.error('Error enviando credenciales por correo', err));
+
     return user;
   }
 
   // ─── ACTUALIZAR USUARIO ────────────────────────────────
   async update(id: string, tenant_id: string, data: {
+    email?: string;
     first_name?: string;
     last_name?: string;
     avatar_url?: string;
