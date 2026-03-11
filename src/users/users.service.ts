@@ -194,7 +194,6 @@ export class UsersService {
   // ─── CREAR USUARIO ─────────────────────────────────────
   async create(tenant_id: string, data: {
     email: string;
-    username: string;
     password?: string;
     first_name?: string;
     last_name?: string;
@@ -218,20 +217,20 @@ export class UsersService {
     document_urls?: string[];
   }, assigned_by: string) {
     const existing = await this.prisma.users.findFirst({
-      where: {
-        OR: [
-          { email: data.email },
-          { username: data.username },
-        ],
-      },
+      where: { email: data.email },
     });
 
     if (existing) {
-      throw new ConflictException(
-        existing.email === data.email
-          ? 'El email ya está registrado'
-          : 'El username ya está en uso',
-      );
+      throw new ConflictException('El email ya está registrado');
+    }
+
+    // Generar username a partir del email
+    const baseUsername = data.email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '').slice(0, 45);
+    let username = baseUsername;
+    let counter = 1;
+    while (await this.prisma.users.findFirst({ where: { username } })) {
+      username = `${baseUsername}${counter}`;
+      counter++;
     }
 
     const plainPassword = data.password || this.generateTemporaryPassword();
@@ -244,7 +243,7 @@ export class UsersService {
         data: {
           tenant_id,
           email: data.email,
-          username: data.username,
+          username,
           password_hash,
           first_name: data.first_name,
           last_name: data.last_name,
