@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
@@ -446,6 +446,24 @@ export class UsersService {
 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
+    }
+
+    // Validar que la nueva contraseña no sea igual a las últimas 5
+    const passwordHistory = await this.prisma.password_history.findMany({
+      where: { user_id: id },
+      orderBy: { changed_at: 'desc' },
+      take: 5,
+      select: { password_hash: true },
+    });
+
+    const hashesToCheck = [user.password_hash, ...passwordHistory.map((h) => h.password_hash)];
+
+    for (const oldHash of hashesToCheck) {
+      if (await bcrypt.compare(data.new_password, oldHash)) {
+        throw new BadRequestException(
+          'La nueva contraseña no puede ser igual a las últimas 5 contraseñas utilizadas',
+        );
+      }
     }
 
     const password_hash = await bcrypt.hash(data.new_password, 12);
