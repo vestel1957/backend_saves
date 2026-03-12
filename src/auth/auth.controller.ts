@@ -4,7 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtGuard } from './guards/jwt.guard';
 import { CurrentUser } from './decorators/user-current.decorator';
-import { RegisterDto, LoginDto, RefreshTokenDto, ForgotPasswordDto, VerifyCodeDto, ResetPasswordDto } from './dto';
+import { LoginDto, RefreshTokenDto, ForgotPasswordDto, VerifyCodeDto, ResetPasswordDto } from './dto';
 import type { Request } from 'express';
 
 @ApiTags('Auth')
@@ -13,15 +13,6 @@ export class AuthController {
   constructor(private authService: AuthService) {}
 
   // ── PÚBLICOS ────────────────────────────────────────
-
-  @Post('register')
-  @Throttle({ default: { ttl: 60000, limit: 5 } })
-  @ApiOperation({ summary: 'Registrar nuevo usuario' })
-  @ApiResponse({ status: 201, description: 'Usuario registrado exitosamente' })
-  @ApiResponse({ status: 409, description: 'Email o username ya existe' })
-  register(@Body() body: RegisterDto) {
-    return this.authService.register(body);
-  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -55,8 +46,8 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({ summary: 'Cerrar sesión actual' })
   @ApiResponse({ status: 200, description: 'Sesión cerrada' })
-  logout(@Body() body: RefreshTokenDto) {
-    return this.authService.logout(body.refresh_token);
+  logout(@Body() body: RefreshTokenDto, @CurrentUser('id') userId: string) {
+    return this.authService.logout(body.refresh_token, userId);
   }
 
   @UseGuards(JwtGuard)
