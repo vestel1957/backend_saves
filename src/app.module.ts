@@ -12,6 +12,7 @@ import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { EmailModule } from './email/email.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { TenantsModule } from './tenants/tenants.module';
 import { CommonModule } from './common/common.module';
 import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
 
@@ -37,6 +38,7 @@ import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
     PermissionsModule,
     EmailModule,
     UploadsModule,
+    TenantsModule,
   ],
   controllers: [AppController],
   providers: [AppService, SessionCleanupTask],

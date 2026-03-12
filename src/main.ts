@@ -4,10 +4,18 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
-import { BodyParserExceptionFilter } from './common/filters/body-parser-exception.filter';
+import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { JsonLoggerService } from './common/logger/json-logger.service';
+import { validateEnv } from './common/config/env.validation';
+import { PrismaService } from './prisma/prisma.service';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // Validar variables de entorno antes de arrancar
+  validateEnv();
+
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new JsonLoggerService(),
+  });
   const logger = new Logger('Bootstrap');
 
   // Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
@@ -27,16 +35,40 @@ async function bootstrap() {
     }),
   );
 
-  app.useGlobalFilters(new BodyParserExceptionFilter());
+  // Filtro global que estandariza TODAS las respuestas de error
+  app.useGlobalFilters(new AllExceptionsFilter());
 
+  // ─── CORS dinámico (env + tenant domains) ─────────────
   const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : [];
 
-  app.enableCors({
-    origin: (origin, callback) => {
-      logger.log(`Origin recibido: ${origin}`);
+  const prisma = app.get(PrismaService);
+  let cachedTenantDomains: string[] = [];
+  let domainsCacheTime = 0;
+  const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
 
+  async function getTenantDomains(): Promise<string[]> {
+    if (Date.now() - domainsCacheTime < CACHE_TTL) {
+      return cachedTenantDomains;
+    }
+    try {
+      const tenants = await prisma.tenants.findMany({
+        where: { is_active: true, domain: { not: null } },
+        select: { domain: true },
+      });
+      cachedTenantDomains = tenants
+        .map((t) => t.domain!)
+        .filter(Boolean);
+      domainsCacheTime = Date.now();
+    } catch {
+      // Si falla la BD, usar la cache anterior
+    }
+    return cachedTenantDomains;
+  }
+
+  app.enableCors({
+    origin: async (origin, callback) => {
       if (!origin) {
         return callback(null, true);
       }
@@ -45,6 +77,13 @@ async function bootstrap() {
       const isAllowedIpAnyPort = /^http:\/\/190\.14\.233\.186:\d+$/.test(origin);
 
       if (isAllowedByEnv || isAllowedIpAnyPort) {
+        return callback(null, true);
+      }
+
+      // Verificar dominios de tenants activos
+      const tenantDomains = await getTenantDomains();
+      const originHost = origin.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
+      if (tenantDomains.some((d) => d === origin || d === originHost)) {
         return callback(null, true);
       }
 
@@ -73,6 +112,9 @@ async function bootstrap() {
       .addTag('Users', 'Gestión de usuarios')
       .addTag('Roles', 'Gestión de roles')
       .addTag('Permissions', 'Gestión de permisos')
+      .addTag('Tenants', 'Gestión de organizaciones')
+      .addTag('Audit', 'Logs de auditoría')
+      .addTag('Health', 'Estado del servicio')
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
@@ -84,7 +126,6 @@ async function bootstrap() {
   await app.listen(port, '0.0.0.0');
 
   logger.log(`API corriendo en http://0.0.0.0:${port}`);
-  logger.log(`Swagger docs en http://0.0.0.0:${port}/api/docs`);
 }
 
 bootstrap();
