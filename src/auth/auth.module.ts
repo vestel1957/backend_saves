@@ -5,15 +5,11 @@ import { APP_GUARD } from '@nestjs/core';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 
-const jwtSecret = process.env.JWT_SECRET;
-if (!jwtSecret) {
-  throw new Error('JWT_SECRET environment variable is required. The application cannot start without it.');
-}
-
 @Module({
   imports: [
     JwtModule.register({
-      secret: jwtSecret,
+      // JWT_SECRET es validado centralmente en env.validation.ts al arrancar
+      secret: process.env.JWT_SECRET,
       signOptions: { expiresIn: '15m' },
     }),
   ],
