@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { paginate, PaginatedResult } from '../helpers/paginate';
 
 export interface AuditContext {
   user_id: string;
@@ -42,5 +43,48 @@ export class AuditService {
       // Nunca dejar que un fallo de auditoría rompa la operación principal
       this.logger.error('Error registrando audit log', error);
     }
+  }
+
+  async findAll(
+    tenant_id: string,
+    isSuperAdmin: boolean,
+    query: {
+      page?: number;
+      limit?: number;
+      module?: string;
+      submodule?: string;
+      action?: string;
+      user_id?: string;
+      resource_id?: string;
+      date_from?: string;
+      date_to?: string;
+    },
+  ): Promise<PaginatedResult<any>> {
+    const where: any = {};
+
+    // Super admin puede ver todos los tenants, usuarios normales solo el suyo
+    if (!isSuperAdmin) {
+      where.tenant_id = tenant_id;
+    }
+
+    if (query.module) where.module = query.module;
+    if (query.submodule) where.submodule = query.submodule;
+    if (query.action) where.action = query.action;
+    if (query.user_id) where.user_id = query.user_id;
+    if (query.resource_id) where.resource_id = query.resource_id;
+
+    if (query.date_from || query.date_to) {
+      where.created_at = {};
+      if (query.date_from) where.created_at.gte = new Date(query.date_from);
+      if (query.date_to) where.created_at.lte = new Date(query.date_to);
+    }
+
+    return paginate(this.prisma.audit_log, {
+      where,
+      orderBy: { created_at: 'desc' },
+      include: {
+        user: { select: { id: true, email: true, first_name: true, last_name: true } },
+      },
+    }, { page: query.page, limit: query.limit });
   }
 }
