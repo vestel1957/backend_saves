@@ -111,6 +111,43 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
+    // Verificar que el tenant esté activo
+    if (!user.tenant || !user.tenant.is_active) {
+      await this.registerLoginAttempt({
+        email: data.email,
+        tenant_id: user.tenant_id,
+        ip_address: data.ip_address,
+        user_agent: data.user_agent,
+        success: false,
+        failure_reason: 'tenant_disabled',
+      });
+      throw new ForbiddenException('La organización se encuentra inactiva');
+    }
+
+    // Account lockout: bloquear tras 5 intentos fallidos en los últimos 15 minutos
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const recentFailures = await this.prisma.login_attempts.count({
+      where: {
+        email: data.email,
+        success: false,
+        created_at: { gt: fifteenMinutesAgo },
+      },
+    });
+
+    if (recentFailures >= 5) {
+      await this.registerLoginAttempt({
+        email: data.email,
+        tenant_id: user.tenant_id,
+        ip_address: data.ip_address,
+        user_agent: data.user_agent,
+        success: false,
+        failure_reason: 'account_locked',
+      });
+      throw new ForbiddenException(
+        'Cuenta bloqueada temporalmente por múltiples intentos fallidos. Intenta de nuevo en 15 minutos',
+      );
+    }
+
     // Verificar la contraseña contra el hash
     const isPasswordValid = await bcrypt.compare(data.password, user.password_hash);
 
@@ -166,59 +203,71 @@ export class AuthService {
     // Hashear el refresh token para buscarlo en la BD
     const token_hash = this.hashToken(refresh_token);
 
-    // Buscar la sesión con ese token
-    const session = await this.prisma.user_sessions.findUnique({
-      where: { token_hash },
-      include: { user: true },
-    });
+    // Usar transacción interactiva para evitar race conditions
+    // Si dos requests llegan con el mismo token, solo uno pasará
+    return this.prisma.$transaction(async (tx) => {
+      // Buscar la sesión con ese token
+      const session = await tx.user_sessions.findUnique({
+        where: { token_hash },
+        include: { user: true },
+      });
 
-    // Si no existe o ya expiró, denegar
-    if (!session || session.expires_at < new Date()) {
-      // Si existe pero expiró, la eliminamos
-      if (session) {
-        await this.prisma.user_sessions.delete({ where: { id: session.id } });
+      // Si no existe o ya expiró, denegar
+      if (!session || session.expires_at < new Date()) {
+        if (session) {
+          await tx.user_sessions.delete({ where: { id: session.id } });
+        }
+        throw new UnauthorizedException('Refresh token inválido o expirado');
       }
-      throw new UnauthorizedException('Refresh token inválido o expirado');
-    }
 
-    // Verificar que el usuario siga activo
-    if (!session.user.is_active) {
-      throw new ForbiddenException('Cuenta desactivada');
-    }
+      // Verificar que el usuario siga activo
+      if (!session.user.is_active) {
+        throw new ForbiddenException('Cuenta desactivada');
+      }
 
-    // Eliminar la sesión vieja (rotación de tokens)
-    await this.prisma.user_sessions.delete({ where: { id: session.id } });
+      // Eliminar la sesión vieja (rotación de tokens)
+      await tx.user_sessions.delete({ where: { id: session.id } });
 
-    // Generar nuevos tokens
-    const tokens = await this.generateTokens(
-      session.user.id,
-      session.user.tenant_id,
-      session.user.is_super_admin,
-    );
+      // Generar nuevos tokens
+      const tokens = await this.generateTokens(
+        session.user.id,
+        session.user.tenant_id,
+        session.user.is_super_admin,
+      );
 
-    // Crear nueva sesión con el nuevo refresh token
-    await this.createSession({
-      user_id: session.user.id,
-      tenant_id: session.user.tenant_id,
-      refresh_token: tokens.refresh_token,
-      ip_address: session.ip_address,
-      user_agent: session.user_agent,
+      // Crear nueva sesión con el nuevo refresh token
+      const new_token_hash = this.hashToken(tokens.refresh_token);
+      await tx.user_sessions.create({
+        data: {
+          user_id: session.user.id,
+          tenant_id: session.user.tenant_id,
+          token_hash: new_token_hash,
+          ip_address: session.ip_address || null,
+          user_agent: session.user_agent || null,
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      return {
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+      };
     });
-
-    return {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-    };
   }
 
   // ─── LOGOUT ─────────────────────────────────────────────
-  // Elimina la sesión actual del usuario
-  async logout(refresh_token: string) {
+  // Elimina la sesión actual del usuario (verificando ownership)
+  async logout(refresh_token: string, user_id: string) {
     const token_hash = this.hashToken(refresh_token);
 
-    await this.prisma.user_sessions.deleteMany({
-      where: { token_hash },
+    // Solo eliminar si la sesión pertenece al usuario autenticado
+    const deleted = await this.prisma.user_sessions.deleteMany({
+      where: { token_hash, user_id },
     });
+
+    if (deleted.count === 0) {
+      throw new UnauthorizedException('Sesión no encontrada o no pertenece a este usuario');
+    }
 
     return { message: 'Sesión cerrada exitosamente' };
   }
@@ -293,8 +342,9 @@ export class AuthService {
   // ─── VERIFY CODE (PASO 2) ──────────────────────────────
   // Valida que el código sea correcto y no haya expirado
   async verifyResetCode(email: string, code: string) {
+    // Buscar por email (NO por code) para poder contar intentos reales
     const resetCode = await this.prisma.password_reset_codes.findFirst({
-      where: { email, code },
+      where: { email },
       orderBy: { created_at: 'desc' },
     });
 
@@ -312,6 +362,17 @@ export class AuthService {
     if (resetCode.attempts >= 5) {
       await this.prisma.password_reset_codes.delete({ where: { id: resetCode.id } });
       throw new ForbiddenException('Demasiados intentos. Solicita un nuevo código');
+    }
+
+    // Incrementar intentos SIEMPRE antes de comparar el código
+    await this.prisma.password_reset_codes.update({
+      where: { id: resetCode.id },
+      data: { attempts: { increment: 1 } },
+    });
+
+    // Ahora sí comparar el código
+    if (resetCode.code !== code) {
+      throw new UnauthorizedException('Código inválido');
     }
 
     // Marcar como verificado
@@ -341,33 +402,65 @@ export class AuthService {
       throw new UnauthorizedException('El código ha expirado');
     }
 
+    // Validar que la nueva contraseña no sea igual a las últimas 5
+    const passwordHistory = await this.prisma.password_history.findMany({
+      where: { user_id: resetCode.user_id },
+      orderBy: { changed_at: 'desc' },
+      take: 5,
+      select: { password_hash: true },
+    });
+
+    // También verificar contra la contraseña actual
+    const currentUser = await this.prisma.users.findUnique({
+      where: { id: resetCode.user_id },
+      select: { password_hash: true },
+    });
+
+    const hashesToCheck = [
+      ...(currentUser ? [currentUser.password_hash] : []),
+      ...passwordHistory.map((h) => h.password_hash),
+    ];
+
+    for (const oldHash of hashesToCheck) {
+      if (await bcrypt.compare(new_password, oldHash)) {
+        throw new ConflictException(
+          'La nueva contraseña no puede ser igual a las últimas 5 contraseñas utilizadas',
+        );
+      }
+    }
+
     // Hashear nueva contraseña
     const password_hash = await bcrypt.hash(new_password, 12);
 
-    // Actualizar contraseña, guardar en historial y eliminar código en transacción
-    await this.prisma.$transaction([
+    // Transacción para actualizar contraseña, historial y cerrar sesiones
+    await this.prisma.$transaction(async (tx) => {
       // Guardar contraseña actual en historial
-      this.prisma.password_history.create({
-        data: {
-          user_id: resetCode.user_id,
-          password_hash: (await this.prisma.users.findUnique({ where: { id: resetCode.user_id } }))!.password_hash,
-          changed_by: resetCode.user_id,
-        },
-      }),
+      if (currentUser) {
+        await tx.password_history.create({
+          data: {
+            user_id: resetCode.user_id,
+            password_hash: currentUser.password_hash,
+            changed_by: resetCode.user_id,
+          },
+        });
+      }
+
       // Actualizar la contraseña
-      this.prisma.users.update({
+      await tx.users.update({
         where: { id: resetCode.user_id },
         data: { password_hash },
-      }),
+      });
+
       // Eliminar todos los códigos del email
-      this.prisma.password_reset_codes.deleteMany({
+      await tx.password_reset_codes.deleteMany({
         where: { email },
-      }),
+      });
+
       // Cerrar todas las sesiones del usuario
-      this.prisma.user_sessions.deleteMany({
+      await tx.user_sessions.deleteMany({
         where: { user_id: resetCode.user_id },
-      }),
-    ]);
+      });
+    });
 
     this.logger.log(`Contraseña reseteada para: ${email}`);
     return { message: 'Contraseña actualizada exitosamente' };

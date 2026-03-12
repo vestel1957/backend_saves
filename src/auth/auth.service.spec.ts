@@ -414,16 +414,17 @@ describe('AuthService', () => {
   describe('logout', () => {
     it('should logout successfully', async () => {
       const refreshToken = 'some-refresh-token';
+      const userId = 'user-123';
       const tokenHash = createHash('sha256')
         .update(refreshToken)
         .digest('hex');
       mockPrisma.user_sessions.deleteMany.mockResolvedValue({ count: 1 });
 
-      const result = await service.logout(refreshToken);
+      const result = await service.logout(refreshToken, userId);
 
       expect(result).toEqual({ message: 'Sesión cerrada exitosamente' });
       expect(mockPrisma.user_sessions.deleteMany).toHaveBeenCalledWith({
-        where: { token_hash: tokenHash },
+        where: { token_hash: tokenHash, user_id: userId },
       });
     });
   });
