@@ -2,12 +2,16 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { BodyParserExceptionFilter } from './common/filters/body-parser-exception.filter';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   const logger = new Logger('Bootstrap');
+
+  // Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
+  app.use(helmet());
 
   app.useBodyParser('json', { limit: '10mb' });
   app.useBodyParser('urlencoded', {
@@ -53,24 +57,28 @@ async function bootstrap() {
     optionsSuccessStatus: 204,
   });
 
-  const config = new DocumentBuilder()
-    .setTitle('Dashboard Ecommerce API')
-    .setDescription(
-      'API REST para gestión de usuarios, roles, permisos y autenticación multi-tenant',
-    )
-    .setVersion('1.0')
-    .addBearerAuth(
-      { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
-      'access-token',
-    )
-    .addTag('Auth', 'Autenticación y sesiones')
-    .addTag('Users', 'Gestión de usuarios')
-    .addTag('Roles', 'Gestión de roles')
-    .addTag('Permissions', 'Gestión de permisos')
-    .build();
+  // Swagger solo disponible fuera de producción
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('Dashboard Ecommerce API')
+      .setDescription(
+        'API REST para gestión de usuarios, roles, permisos y autenticación multi-tenant',
+      )
+      .setVersion('1.0')
+      .addBearerAuth(
+        { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+        'access-token',
+      )
+      .addTag('Auth', 'Autenticación y sesiones')
+      .addTag('Users', 'Gestión de usuarios')
+      .addTag('Roles', 'Gestión de roles')
+      .addTag('Permissions', 'Gestión de permisos')
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('api/docs', app, document);
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+    logger.log('Swagger docs habilitado en /api/docs');
+  }
 
   const port = Number(process.env.PORT) || 3000;
   await app.listen(port, '0.0.0.0');
