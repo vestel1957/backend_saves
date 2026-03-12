@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { join } from 'path';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -11,6 +12,8 @@ import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { EmailModule } from './email/email.module';
 import { UploadsModule } from './uploads/uploads.module';
+import { CommonModule } from './common/common.module';
+import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
 
 @Module({
   imports: [
@@ -24,6 +27,9 @@ import { UploadsModule } from './uploads/uploads.module';
       ttl: 60000,
       limit: 60,
     }]),
+    // Tareas programadas (cron jobs)
+    ScheduleModule.forRoot(),
+    CommonModule,
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -33,6 +39,6 @@ import { UploadsModule } from './uploads/uploads.module';
     UploadsModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, SessionCleanupTask],
 })
 export class AppModule {}
