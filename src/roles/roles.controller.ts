@@ -1,18 +1,27 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { RolesService } from './roles.service';
+import { AuditService } from '../common/services/audit.service';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
 import { CurrentUser } from '../auth/decorators/user-current.decorator';
 import { CreateRoleDto, UpdateRoleDto, AssignRolePermissionsDto } from './dto';
+import type { Request } from 'express';
 
 @ApiTags('Roles')
 @ApiBearerAuth('access-token')
 @Controller('api/v1/roles')
 @UseGuards(JwtGuard, PermissionGuard)
 export class RolesController {
-  constructor(private rolesService: RolesService) {}
+  constructor(
+    private rolesService: RolesService,
+    private auditService: AuditService,
+  ) {}
+
+  private auditCtx(userId: string, tenantId: string, req: Request) {
+    return { user_id: userId, tenant_id: tenantId, ip_address: req.ip, user_agent: req.headers['user-agent'] as string };
+  }
 
   @RequirePermission('configuracion', 'roles', 'ver')
   @Get()
@@ -45,11 +54,22 @@ export class RolesController {
   @ApiOperation({ summary: 'Crear rol con permisos opcionales' })
   @ApiResponse({ status: 201, description: 'Rol creado' })
   @ApiResponse({ status: 409, description: 'Ya existe un rol con ese nombre' })
-  create(
+  async create(
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
     @Body() body: CreateRoleDto,
+    @Req() req: Request,
   ) {
-    return this.rolesService.create(tenantId, body);
+    const result = await this.rolesService.create(tenantId, body);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'roles', action: 'crear',
+      resource_id: result.id,
+      new_data: { name: result.name },
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'roles', 'editar')
@@ -57,12 +77,23 @@ export class RolesController {
   @ApiOperation({ summary: 'Actualizar rol' })
   @ApiResponse({ status: 200, description: 'Rol actualizado' })
   @ApiResponse({ status: 403, description: 'No se puede modificar rol del sistema' })
-  update(
+  async update(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
     @Body() body: UpdateRoleDto,
+    @Req() req: Request,
   ) {
-    return this.rolesService.update(id, tenantId, body);
+    const result = await this.rolesService.update(id, tenantId, body);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'roles', action: 'editar',
+      resource_id: id,
+      new_data: body,
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'roles', 'eliminar')
@@ -70,11 +101,21 @@ export class RolesController {
   @ApiOperation({ summary: 'Eliminar rol' })
   @ApiResponse({ status: 200, description: 'Rol eliminado' })
   @ApiResponse({ status: 403, description: 'No se puede eliminar rol del sistema' })
-  remove(
+  async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.rolesService.remove(id, tenantId);
+    const result = await this.rolesService.remove(id, tenantId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'roles', action: 'eliminar',
+      resource_id: id,
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'roles', 'ver')
@@ -92,24 +133,46 @@ export class RolesController {
   @Post(':id/permissions')
   @ApiOperation({ summary: 'Asignar permisos al rol' })
   @ApiResponse({ status: 201, description: 'Permisos asignados' })
-  assignPermissions(
+  async assignPermissions(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
     @Body() body: AssignRolePermissionsDto,
+    @Req() req: Request,
   ) {
-    return this.rolesService.assignPermissions(id, tenantId, body);
+    const result = await this.rolesService.assignPermissions(id, tenantId, body);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'roles', action: 'asignar_permisos',
+      resource_id: id,
+      new_data: { permission_ids: body.permission_ids },
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'roles', 'editar')
   @Delete(':id/permissions/:permissionId')
   @ApiOperation({ summary: 'Quitar permiso del rol' })
   @ApiResponse({ status: 200, description: 'Permiso removido del rol' })
-  removePermission(
+  async removePermission(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('permissionId', ParseUUIDPipe) permissionId: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.rolesService.removePermission(id, permissionId, tenantId);
+    const result = await this.rolesService.removePermission(id, permissionId, tenantId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'roles', action: 'remover_permiso',
+      resource_id: id,
+      old_data: { permission_id: permissionId },
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'roles', 'ver')

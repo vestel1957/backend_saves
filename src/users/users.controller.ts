@@ -7,6 +7,8 @@ import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiConsumes, ApiQuery } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UploadsService } from '../uploads/uploads.service';
+import { AuditService } from '../common/services/audit.service';
+import { imageFileFilter, documentFileFilter } from '../common/filters/file-filter';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
 import { RequirePermission } from '../auth/decorators/require-permission.decorator';
@@ -22,7 +24,12 @@ export class UsersController {
   constructor(
     private usersService: UsersService,
     private uploadsService: UploadsService,
+    private auditService: AuditService,
   ) {}
+
+  private auditCtx(userId: string, tenantId: string, req: Request) {
+    return { user_id: userId, tenant_id: tenantId, ip_address: req.ip, user_agent: req.headers['user-agent'] as string };
+  }
 
   // ─── CRUD ───────────────────────────────────────────────
 
@@ -92,6 +99,12 @@ export class UsersController {
     { name: 'documents', maxCount: 10 },
   ], {
     limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      if (file.fieldname === 'avatar' || file.fieldname === 'signature') {
+        return imageFileFilter(req, file, cb);
+      }
+      return documentFileFilter(req, file, cb);
+    },
   }))
   async create(
     @CurrentUser('tenant_id') tenantId: string,
@@ -125,6 +138,13 @@ export class UsersController {
       document_urls,
     }, userId);
 
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'crear',
+      resource_id: createdUser.id,
+      new_data: { email: createdUser.email, username: createdUser.username },
+    });
+
     return this.mapUserFileUrls(createdUser, req);
   }
 
@@ -140,6 +160,12 @@ export class UsersController {
     { name: 'documents', maxCount: 10 },
   ], {
     limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      if (file.fieldname === 'avatar' || file.fieldname === 'signature') {
+        return imageFileFilter(req, file, cb);
+      }
+      return documentFileFilter(req, file, cb);
+    },
   }))
   async update(
     @Param('id', ParseUUIDPipe) id: string,
@@ -177,6 +203,14 @@ export class UsersController {
     if (document_urls.length) parsedBody.document_urls = document_urls;
 
     const updatedUser = await this.usersService.update(id, tenantId, parsedBody, userId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'editar',
+      resource_id: id,
+      new_data: parsedBody,
+    });
+
     return this.mapUserFileUrls(updatedUser, req);
   }
 
@@ -185,11 +219,21 @@ export class UsersController {
   @ApiOperation({ summary: 'Eliminar usuario' })
   @ApiResponse({ status: 200, description: 'Usuario eliminado' })
   @ApiResponse({ status: 404, description: 'Usuario no encontrado' })
-  remove(
+  async remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.usersService.remove(id, tenantId);
+    const result = await this.usersService.remove(id, tenantId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'eliminar',
+      resource_id: id,
+    });
+
+    return result;
   }
 
   // ─── ACCIONES ESPECIALES ────────────────────────────────
@@ -198,42 +242,71 @@ export class UsersController {
   @Patch(':id/password')
   @ApiOperation({ summary: 'Cambiar contraseña de un usuario' })
   @ApiResponse({ status: 200, description: 'Contraseña actualizada' })
-  changePassword(
+  async changePassword(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: ChangePasswordDto,
+    @Req() req: Request,
   ) {
-    return this.usersService.changePassword(id, tenantId, body, userId);
+    const result = await this.usersService.changePassword(id, tenantId, body, userId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'cambiar_password',
+      resource_id: id,
+    });
+
+    return result;
   }
 
   @Patch(':id/password/admin-reset')
   @ApiOperation({ summary: 'Resetear contraseña de un usuario directamente (solo super admin)' })
   @ApiResponse({ status: 200, description: 'Contraseña actualizada por super admin' })
   @ApiResponse({ status: 403, description: 'Solo disponible para super admin' })
-  adminResetPassword(
+  async adminResetPassword(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @CurrentUser('is_super_admin') isSuperAdmin: boolean,
     @Body() body: ChangePasswordDto,
+    @Req() req: Request,
   ) {
     if (!isSuperAdmin) {
       throw new ForbiddenException('Solo el super admin puede resetear contraseñas directamente');
     }
 
-    return this.usersService.changePassword(id, tenantId, body, userId);
+    const result = await this.usersService.changePassword(id, tenantId, body, userId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'admin_reset_password',
+      resource_id: id,
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Patch(':id/toggle-status')
   @ApiOperation({ summary: 'Activar/desactivar usuario' })
   @ApiResponse({ status: 200, description: 'Estado cambiado' })
-  toggleStatus(
+  async toggleStatus(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.usersService.toggleStatus(id, tenantId);
+    const result = await this.usersService.toggleStatus(id, tenantId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'toggle_status',
+      resource_id: id,
+      new_data: { is_active: result.is_active },
+    });
+
+    return result;
   }
 
   // ─── ROLES ──────────────────────────────────────────────
@@ -253,25 +326,46 @@ export class UsersController {
   @Post(':id/roles')
   @ApiOperation({ summary: 'Asignar roles a un usuario' })
   @ApiResponse({ status: 201, description: 'Roles asignados' })
-  assignRoles(
+  async assignRoles(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: AssignRolesDto,
+    @Req() req: Request,
   ) {
-    return this.usersService.assignRoles(id, tenantId, body, userId);
+    const result = await this.usersService.assignRoles(id, tenantId, body, userId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'asignar_roles',
+      resource_id: id,
+      new_data: { role_ids: body.role_ids },
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Delete(':id/roles/:roleId')
   @ApiOperation({ summary: 'Quitar rol de un usuario' })
   @ApiResponse({ status: 200, description: 'Rol removido' })
-  removeRole(
+  async removeRole(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('roleId', ParseUUIDPipe) roleId: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.usersService.removeRole(id, roleId, tenantId);
+    const result = await this.usersService.removeRole(id, roleId, tenantId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'remover_rol',
+      resource_id: id,
+      old_data: { role_id: roleId },
+    });
+
+    return result;
   }
 
   // ─── PERMISOS ───────────────────────────────────────────
@@ -291,38 +385,69 @@ export class UsersController {
   @Post(':id/permissions')
   @ApiOperation({ summary: 'Agregar permisos extra al usuario' })
   @ApiResponse({ status: 201, description: 'Permisos extra asignados' })
-  assignExtraPermissions(
+  async assignExtraPermissions(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: AssignPermissionsDto,
+    @Req() req: Request,
   ) {
-    return this.usersService.assignExtraPermissions(id, tenantId, body, userId);
+    const result = await this.usersService.assignExtraPermissions(id, tenantId, body, userId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'asignar_permisos',
+      resource_id: id,
+      new_data: { permission_ids: body.permission_ids },
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Put(':id/permissions')
   @ApiOperation({ summary: 'Reemplazar todos los permisos extra del usuario' })
   @ApiResponse({ status: 200, description: 'Permisos extra actualizados' })
-  replaceExtraPermissions(
+  async replaceExtraPermissions(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: AssignPermissionsDto,
+    @Req() req: Request,
   ) {
-    return this.usersService.replaceExtraPermissions(id, tenantId, body, userId);
+    const result = await this.usersService.replaceExtraPermissions(id, tenantId, body, userId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'reemplazar_permisos',
+      resource_id: id,
+      new_data: { permission_ids: body.permission_ids },
+    });
+
+    return result;
   }
 
   @RequirePermission('configuracion', 'usuarios', 'editar')
   @Delete(':id/permissions/:permissionId')
   @ApiOperation({ summary: 'Quitar permiso extra del usuario' })
   @ApiResponse({ status: 200, description: 'Permiso extra removido' })
-  removeExtraPermission(
+  async removeExtraPermission(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('permissionId', ParseUUIDPipe) permissionId: string,
     @CurrentUser('tenant_id') tenantId: string,
+    @CurrentUser('id') userId: string,
+    @Req() req: Request,
   ) {
-    return this.usersService.removeExtraPermission(id, permissionId, tenantId);
+    const result = await this.usersService.removeExtraPermission(id, permissionId, tenantId);
+
+    this.auditService.log({
+      context: this.auditCtx(userId, tenantId, req),
+      module: 'configuracion', submodule: 'usuarios', action: 'remover_permiso',
+      resource_id: id,
+      old_data: { permission_id: permissionId },
+    });
+
+    return result;
   }
 
   private mapUserFileUrls<T extends Record<string, any>>(user: T, req: Request): T {
