@@ -1,0 +1,992 @@
+{
+  "info": {
+    "name": "BackedBase - Boilerplate API",
+    "description": "Colección completa de endpoints para el boilerplate NestJS multi-tenant.\n\nVariables:\n- {{base_url}}: URL base del servidor\n- {{access_token}}: Token JWT de acceso\n- {{refresh_token}}: Token de refresco",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "role_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "permission_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tenant_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{access_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Verifica el estado del servicio, conexión a BD, uptime y timestamp."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.access_token) {",
+                  "    pm.collectionVariables.set('access_token', res.access_token);",
+                  "}",
+                  "if (res.refresh_token) {",
+                  "    pm.collectionVariables.set('refresh_token', res.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@admin.com\",\n  \"password\": \"Admin123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Inicia sesión. Guarda automáticamente access_token y refresh_token en variables."
+          }
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.access_token) {",
+                  "    pm.collectionVariables.set('access_token', res.access_token);",
+                  "}",
+                  "if (res.refresh_token) {",
+                  "    pm.collectionVariables.set('refresh_token', res.refresh_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "refresh"]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Renueva el access_token usando el refresh_token. Guarda los nuevos tokens automáticamente."
+          }
+        },
+        {
+          "name": "Me (Perfil)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "me"]
+            },
+            "description": "Obtiene el perfil del usuario autenticado con sus roles y permisos."
+          }
+        },
+        {
+          "name": "Sessions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sessions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sessions"]
+            },
+            "description": "Lista las sesiones activas del usuario autenticado."
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refresh_token\": \"{{refresh_token}}\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "logout"]
+            },
+            "description": "Cierra la sesión actual invalidando el refresh token."
+          }
+        },
+        {
+          "name": "Logout All Sessions",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout-all",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "logout-all"]
+            },
+            "description": "Cierra todas las sesiones activas del usuario."
+          }
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@admin.com\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "forgot-password"]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Solicita código de recuperación de contraseña. Rate limited: 3 por minuto."
+          }
+        },
+        {
+          "name": "Verify Code",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@admin.com\",\n  \"code\": \"123456\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/verify-code",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "verify-code"]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Verifica el código de recuperación. Rate limited: 5 por minuto."
+          }
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@admin.com\",\n  \"code\": \"123456\",\n  \"new_password\": \"NuevaPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/reset-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "reset-password"]
+            },
+            "auth": {
+              "type": "noauth"
+            },
+            "description": "Resetea la contraseña con código verificado. Requiere: 8+ chars, mayúscula, minúscula, número, carácter especial."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users?page=1&limit=10&search=&is_active=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "is_active", "value": "true", "disabled": true }
+              ]
+            },
+            "description": "Lista usuarios paginados. Permiso: configuracion.usuarios.ver"
+          }
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}"]
+            },
+            "description": "Obtiene detalle de un usuario con sus roles y permisos. Permiso: configuracion.usuarios.ver"
+          }
+        },
+        {
+          "name": "Create User",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "email", "value": "nuevo@email.com", "type": "text" },
+                { "key": "first_name", "value": "Juan", "type": "text" },
+                { "key": "last_name", "value": "Pérez", "type": "text" },
+                { "key": "document_number", "value": "1234567890", "type": "text" },
+                { "key": "document_type", "value": "CC", "type": "text" },
+                { "key": "phone", "value": "3001234567", "type": "text" },
+                { "key": "is_active", "value": "true", "type": "text" },
+                { "key": "hire_date", "value": "2024-01-15", "type": "text", "disabled": true },
+                { "key": "blood_type", "value": "O+", "type": "text", "disabled": true },
+                { "key": "eps", "value": "Sura", "type": "text", "disabled": true },
+                { "key": "pension_fund", "value": "Porvenir", "type": "text", "disabled": true },
+                { "key": "address", "value": "Calle 123 #45-67", "type": "text", "disabled": true },
+                { "key": "city", "value": "Bogotá", "type": "text", "disabled": true },
+                { "key": "department", "value": "Cundinamarca", "type": "text", "disabled": true },
+                { "key": "country", "value": "Colombia", "type": "text", "disabled": true },
+                { "key": "phone_alt", "value": "3109876543", "type": "text", "disabled": true },
+                { "key": "area_id", "value": "", "type": "text", "disabled": true },
+                { "key": "role_id", "value": "", "type": "text", "disabled": true },
+                { "key": "avatar", "value": "", "type": "file", "disabled": true },
+                { "key": "signature", "value": "", "type": "file", "disabled": true },
+                { "key": "documents", "value": "", "type": "file", "disabled": true }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users"]
+            },
+            "description": "Crea un usuario. Soporta upload de avatar, firma y documentos. Permiso: configuracion.usuarios.crear"
+          }
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                { "key": "first_name", "value": "Juan Actualizado", "type": "text" },
+                { "key": "last_name", "value": "Pérez", "type": "text" },
+                { "key": "phone", "value": "3001234567", "type": "text" },
+                { "key": "email", "value": "actualizado@email.com", "type": "text", "disabled": true },
+                { "key": "is_active", "value": "true", "type": "text", "disabled": true },
+                { "key": "avatar", "value": "", "type": "file", "disabled": true }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}"]
+            },
+            "description": "Actualiza un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}"]
+            },
+            "description": "Elimina un usuario. Permiso: configuracion.usuarios.eliminar"
+          }
+        },
+        {
+          "name": "Toggle User Status",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/toggle-status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "toggle-status"]
+            },
+            "description": "Activa/desactiva un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Change Password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_password\": \"NuevaPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "password"]
+            },
+            "description": "Cambia la contraseña de un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Admin Reset Password",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_password\": \"ResetPassword123!\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/password/admin-reset",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "password", "admin-reset"]
+            },
+            "description": "Reset de contraseña por super admin. Solo super_admin puede ejecutar."
+          }
+        },
+        {
+          "name": "Get User Roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/roles",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "roles"]
+            },
+            "description": "Lista los roles asignados a un usuario. Permiso: configuracion.usuarios.ver"
+          }
+        },
+        {
+          "name": "Assign Roles to User",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role_ids\": [\"{{role_id}}\"],\n  \"expires_at\": \"2026-12-31T23:59:59Z\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/roles",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "roles"]
+            },
+            "description": "Asigna roles a un usuario. expires_at es opcional. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Remove Role from User",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/roles/{{role_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "roles", "{{role_id}}"]
+            },
+            "description": "Remueve un rol de un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Get User Permissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "permissions"]
+            },
+            "description": "Lista los permisos combinados de un usuario (roles + extra). Permiso: configuracion.usuarios.ver"
+          }
+        },
+        {
+          "name": "Add Extra Permissions",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permission_ids\": [\"{{permission_id}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "permissions"]
+            },
+            "description": "Agrega permisos extra a un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Replace All Extra Permissions",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permission_ids\": [\"{{permission_id}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "permissions"]
+            },
+            "description": "Reemplaza todos los permisos extra de un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Remove Extra Permission",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}/permissions/{{permission_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}", "permissions", "{{permission_id}}"]
+            },
+            "description": "Remueve un permiso extra de un usuario. Permiso: configuracion.usuarios.editar"
+          }
+        },
+        {
+          "name": "Catalogs - Areas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/catalogs/areas",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "catalogs", "areas"]
+            },
+            "description": "Obtiene catálogo de áreas disponibles. Permiso: configuracion.usuarios.ver"
+          }
+        },
+        {
+          "name": "Catalogs - Sedes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/catalogs/sedes",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "catalogs", "sedes"]
+            },
+            "description": "Obtiene catálogo de sedes disponibles. Permiso: configuracion.usuarios.ver"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Roles",
+      "item": [
+        {
+          "name": "List Roles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles?is_active=true",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles"],
+              "query": [
+                { "key": "is_active", "value": "true", "disabled": true }
+              ]
+            },
+            "description": "Lista roles con contadores. Permiso: configuracion.roles.ver"
+          }
+        },
+        {
+          "name": "Get Role",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}"]
+            },
+            "description": "Obtiene detalle de un rol con sus permisos. Permiso: configuracion.roles.ver"
+          }
+        },
+        {
+          "name": "Create Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nuevo Rol\",\n  \"description\": \"Descripción del rol\",\n  \"permission_ids\": []\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles"]
+            },
+            "description": "Crea un rol con permisos opcionales. Permiso: configuracion.roles.crear"
+          }
+        },
+        {
+          "name": "Update Role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Rol Actualizado\",\n  \"description\": \"Nueva descripción\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}"]
+            },
+            "description": "Actualiza un rol. Permiso: configuracion.roles.editar"
+          }
+        },
+        {
+          "name": "Delete Role",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}"]
+            },
+            "description": "Elimina un rol. Permiso: configuracion.roles.eliminar"
+          }
+        },
+        {
+          "name": "Get Role Permissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}", "permissions"]
+            },
+            "description": "Lista permisos asignados a un rol. Permiso: configuracion.roles.ver"
+          }
+        },
+        {
+          "name": "Assign Permissions to Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permission_ids\": [\"{{permission_id}}\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}", "permissions"]
+            },
+            "description": "Asigna permisos a un rol. Permiso: configuracion.roles.editar"
+          }
+        },
+        {
+          "name": "Remove Permission from Role",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}/permissions/{{permission_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}", "permissions", "{{permission_id}}"]
+            },
+            "description": "Remueve un permiso de un rol. Permiso: configuracion.roles.editar"
+          }
+        },
+        {
+          "name": "Get Role Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/roles/{{role_id}}/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "roles", "{{role_id}}", "users"]
+            },
+            "description": "Lista usuarios con este rol. Permiso: configuracion.roles.ver"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Permissions",
+      "item": [
+        {
+          "name": "List Permissions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions?module=&submodule=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions"],
+              "query": [
+                { "key": "module", "value": "", "disabled": true },
+                { "key": "submodule", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Lista permisos con filtros opcionales. Permiso: configuracion.roles.ver"
+          }
+        },
+        {
+          "name": "List Permissions Grouped",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions/grouped",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions", "grouped"]
+            },
+            "description": "Lista permisos agrupados por módulo/submódulo. Permiso: configuracion.roles.ver"
+          }
+        },
+        {
+          "name": "Get Permission",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions/{{permission_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions", "{{permission_id}}"]
+            },
+            "description": "Obtiene detalle de un permiso. Permiso: configuracion.roles.ver"
+          }
+        },
+        {
+          "name": "Create Permission",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"module\": \"modulo\",\n  \"submodule\": \"submodulo\",\n  \"action\": \"ver\",\n  \"description\": \"Permite ver el submódulo\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions"]
+            },
+            "description": "Crea un permiso. Formato: module.submodule.action. Permiso: configuracion.roles.crear"
+          }
+        },
+        {
+          "name": "Create Bulk Permissions",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"permissions\": [\n    {\n      \"module\": \"ventas\",\n      \"submodule\": \"pedidos\",\n      \"action\": \"ver\",\n      \"description\": \"Permite ver pedidos\"\n    },\n    {\n      \"module\": \"ventas\",\n      \"submodule\": \"pedidos\",\n      \"action\": \"crear\",\n      \"description\": \"Permite crear pedidos\"\n    },\n    {\n      \"module\": \"ventas\",\n      \"submodule\": \"pedidos\",\n      \"action\": \"editar\",\n      \"description\": \"Permite editar pedidos\"\n    },\n    {\n      \"module\": \"ventas\",\n      \"submodule\": \"pedidos\",\n      \"action\": \"eliminar\",\n      \"description\": \"Permite eliminar pedidos\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions/bulk",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions", "bulk"]
+            },
+            "description": "Crea múltiples permisos en batch. Permiso: configuracion.roles.crear"
+          }
+        },
+        {
+          "name": "Update Permission",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Descripción actualizada\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions/{{permission_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions", "{{permission_id}}"]
+            },
+            "description": "Actualiza la descripción de un permiso. Permiso: configuracion.roles.editar"
+          }
+        },
+        {
+          "name": "Delete Permission",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/permissions/{{permission_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "permissions", "{{permission_id}}"]
+            },
+            "description": "Elimina un permiso. Permiso: configuracion.roles.eliminar"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Tenants",
+      "item": [
+        {
+          "name": "List Tenants",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants?page=1&limit=10&search=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "search", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Lista tenants (organizaciones) paginados. Permiso: sistema.tenants.ver"
+          }
+        },
+        {
+          "name": "Get Tenant",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{{tenant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}"]
+            },
+            "description": "Obtiene detalle de un tenant. Permiso: sistema.tenants.ver"
+          }
+        },
+        {
+          "name": "Create Tenant",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nueva Empresa\",\n  \"admin_email\": \"admin@nuevaempresa.com\",\n  \"domain\": \"nuevaempresa.com\",\n  \"contact_email\": \"contacto@nuevaempresa.com\",\n  \"contact_phone\": \"+57 300 123 4567\",\n  \"address\": \"Calle 123 #45-67\",\n  \"plan\": \"basic\",\n  \"max_users\": 50\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants"]
+            },
+            "description": "Crea un tenant con onboarding automático (permisos base, rol admin, usuario admin, email de bienvenida). Permiso: sistema.tenants.crear"
+          }
+        },
+        {
+          "name": "Update Tenant",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Empresa Actualizada\",\n  \"plan\": \"professional\",\n  \"max_users\": 100\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{{tenant_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}"]
+            },
+            "description": "Actualiza un tenant. Permiso: sistema.tenants.editar"
+          }
+        },
+        {
+          "name": "Toggle Tenant Status",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{{tenant_id}}/toggle-status",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}", "toggle-status"]
+            },
+            "description": "Activa/desactiva un tenant. Permiso: sistema.tenants.editar"
+          }
+        },
+        {
+          "name": "Get Tenant Settings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{{tenant_id}}/settings",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}", "settings"]
+            },
+            "description": "Obtiene la configuración de un tenant. Permiso: sistema.tenants.ver"
+          }
+        },
+        {
+          "name": "Update Tenant Settings",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"settings\": {\n    \"theme\": \"dark\",\n    \"language\": \"es\",\n    \"timezone\": \"America/Bogota\",\n    \"logo_url\": \"\",\n    \"primary_color\": \"#1976D2\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/tenants/{{tenant_id}}/settings",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "tenants", "{{tenant_id}}", "settings"]
+            },
+            "description": "Actualiza settings del tenant (merge parcial). Permiso: sistema.tenants.editar"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Audit Logs",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/audit-logs?page=1&limit=10&module=&submodule=&action=&user_id=&resource_id=&date_from=&date_to=",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "audit-logs"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "module", "value": "", "disabled": true },
+                { "key": "submodule", "value": "", "disabled": true },
+                { "key": "action", "value": "", "disabled": true },
+                { "key": "user_id", "value": "", "disabled": true },
+                { "key": "resource_id", "value": "", "disabled": true },
+                { "key": "date_from", "value": "2024-01-01T00:00:00Z", "disabled": true },
+                { "key": "date_to", "value": "2026-12-31T23:59:59Z", "disabled": true }
+              ]
+            },
+            "description": "Lista logs de auditoría con filtros y paginación. Permiso: sistema.auditoria.ver"
+          }
+        }
+      ]
+    }
+  ]
+}

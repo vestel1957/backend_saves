@@ -24,7 +24,6 @@ RUN pnpm install --frozen-lockfile --prod
 RUN pnpm exec prisma generate
 
 COPY --from=build /app/dist ./dist
-RUN cp -r generated dist/
 
 EXPOSE 3000
 CMD ["sh", "-c", "pnpm exec prisma migrate resolve --applied 0_init 2>/dev/null; pnpm exec prisma migrate deploy && node dist/src/main"]
