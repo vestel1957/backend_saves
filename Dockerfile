@@ -23,12 +23,11 @@ ENV NODE_ENV=production
 RUN corepack enable
 
 COPY package.json pnpm-lock.yaml ./
+COPY --from=build /app/prisma ./prisma
 RUN pnpm install --frozen-lockfile --prod
+RUN pnpm exec prisma generate
 
 COPY --from=build /app/dist ./dist
-COPY --from=build /app/prisma ./prisma
-COPY --from=deps /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=deps /app/node_modules/@prisma ./node_modules/@prisma
 
 EXPOSE 3000
 CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node dist/main"]
