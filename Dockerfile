@@ -26,4 +26,4 @@ RUN pnpm exec prisma generate
 COPY --from=build /app/dist ./dist
 
 EXPOSE 3000
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "pnpm exec prisma migrate resolve --applied 0_init 2>/dev/null; pnpm exec prisma migrate deploy && node dist/main"]
