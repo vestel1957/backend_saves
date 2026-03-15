@@ -9,7 +9,6 @@ datasource db {
 
 model audit_log {
   id          String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id   String?  @db.Uuid
   user_id     String?  @db.Uuid
   module      String   @db.VarChar(50)
   submodule   String?  @db.VarChar(50)
@@ -20,32 +19,27 @@ model audit_log {
   ip_address  String?  @db.Inet
   user_agent  String?
   created_at  DateTime @default(now()) @db.Timestamptz(6)
-  tenant      tenants? @relation(fields: [tenant_id], references: [id], onUpdate: NoAction)
   user        users?   @relation(fields: [user_id], references: [id], onUpdate: NoAction)
 
   @@index([action], map: "idx_audit_action")
   @@index([created_at(sort: Desc)], map: "idx_audit_created")
-  @@index([tenant_id, module, submodule], map: "idx_audit_module")
+  @@index([module, submodule], map: "idx_audit_module")
   @@index([resource_id], map: "idx_audit_resource")
-  @@index([tenant_id], map: "idx_audit_tenant")
   @@index([user_id], map: "idx_audit_user")
 }
 
 model login_attempts {
   id             String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id      String?  @db.Uuid
   email          String   @db.VarChar(255)
   ip_address     String   @db.Inet
   user_agent     String?
   success        Boolean  @default(false)
   failure_reason String?  @db.VarChar(50)
   created_at     DateTime @default(now()) @db.Timestamptz(6)
-  tenant         tenants? @relation(fields: [tenant_id], references: [id], onUpdate: NoAction)
 
   @@index([created_at(sort: Desc)], map: "idx_login_created")
   @@index([email], map: "idx_login_email")
   @@index([ip_address], map: "idx_login_ip")
-  @@index([tenant_id], map: "idx_login_tenant")
 }
 
 model password_history {
@@ -63,22 +57,19 @@ model password_history {
 
 model permissions {
   id               String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id        String             @db.Uuid
   module           String             @db.VarChar(50)
   submodule        String             @db.VarChar(50)
   action           String             @db.VarChar(20)
   description      String?
   created_at       DateTime           @default(now()) @db.Timestamptz(6)
   updated_at       DateTime           @default(now()) @db.Timestamptz(6)
-  tenant           tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   role_permissions role_permissions[]
   user_permissions user_permissions[]
 
-  @@unique([tenant_id, module, submodule, action])
+  @@unique([module, submodule, action])
   @@index([action], map: "idx_permissions_action")
-  @@index([tenant_id, module], map: "idx_permissions_module")
-  @@index([tenant_id, module, submodule], map: "idx_permissions_submodule")
-  @@index([tenant_id], map: "idx_permissions_tenant")
+  @@index([module], map: "idx_permissions_module")
+  @@index([module, submodule], map: "idx_permissions_submodule")
 }
 
 model role_permissions {
@@ -96,8 +87,7 @@ model role_permissions {
 
 model roles {
   id               String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id        String             @db.Uuid
-  name             String             @db.VarChar(50)
+  name             String             @unique @db.VarChar(50)
   description      String?
   is_active        Boolean            @default(true)
   is_system        Boolean            @default(false)
@@ -107,69 +97,27 @@ model roles {
   role_permissions role_permissions[]
   parent_role      roles?             @relation("role_hierarchy", fields: [parent_role_id], references: [id], onUpdate: NoAction)
   child_roles      roles[]            @relation("role_hierarchy")
-  tenant           tenants            @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user_roles       user_roles[]
 
-  @@unique([tenant_id, name])
-  @@index([tenant_id, is_active], map: "idx_roles_active")
+  @@index([is_active], map: "idx_roles_active")
   @@index([parent_role_id], map: "idx_roles_parent")
-  @@index([tenant_id], map: "idx_roles_tenant")
-}
-
-model tenants {
-  id             String           @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  name           String           @db.VarChar(100)
-  slug           String           @unique @db.VarChar(100)
-  logo_url       String?
-  domain         String?          @db.VarChar(255)
-  is_active      Boolean          @default(true)
-  settings       Json?            @default("{}")
-  max_users      Int?             @default(50)
-  plan           String?          @default("basic") @db.VarChar(30)
-  contact_email  String?          @db.VarChar(255)
-  contact_phone  String?          @db.VarChar(30)
-  address        String?
-  created_at     DateTime         @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime         @default(now()) @db.Timestamptz(6)
-  audit_logs     audit_log[]
-  login_attempts login_attempts[]
-  permissions    permissions[]
-  roles          roles[]
-  sessions       user_sessions[]
-  users          users[]
-  areas          areas[]
-  sedes          sedes[]
-
-  @@index([is_active], map: "idx_tenants_active")
-  @@index([plan], map: "idx_tenants_plan")
-  @@index([slug], map: "idx_tenants_slug")
 }
 
 model areas {
   id         String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id  String       @db.Uuid
-  name       String       @db.VarChar(100)
+  name       String       @unique @db.VarChar(100)
   is_active  Boolean      @default(true)
   created_at DateTime     @default(now()) @db.Timestamptz(6)
-  tenant     tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user_sedes user_sedes[]
   users      users[]
-
-  @@unique([tenant_id, name])
-  @@index([tenant_id], map: "idx_areas_tenant")
 }
 
 model sedes {
   id         String       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id  String       @db.Uuid
-  name       String       @db.VarChar(100)
+  name       String       @unique @db.VarChar(100)
   is_active  Boolean      @default(true)
   created_at DateTime     @default(now()) @db.Timestamptz(6)
-  tenant     tenants      @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user_sedes user_sedes[]
-
-  @@unique([tenant_id, name])
-  @@index([tenant_id], map: "idx_sedes_tenant")
 }
 
 model user_roles {
@@ -205,24 +153,20 @@ model user_sedes {
 model user_sessions {
   id         String   @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
   user_id    String   @db.Uuid
-  tenant_id  String?  @db.Uuid
   token_hash String   @unique
   ip_address String?  @db.Inet
   user_agent String?
   expires_at DateTime @db.Timestamptz(6)
   created_at DateTime @default(now()) @db.Timestamptz(6)
-  tenant     tenants? @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   user       users    @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([expires_at], map: "idx_sessions_expires")
-  @@index([tenant_id], map: "idx_sessions_tenant")
   @@index([token_hash], map: "idx_sessions_token")
   @@index([user_id], map: "idx_sessions_user")
 }
 
 model users {
   id                   String                 @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  tenant_id            String?                @db.Uuid
   email                String                 @unique @db.VarChar(255)
   username             String                 @unique @db.VarChar(100)
   password_hash        String
@@ -257,14 +201,12 @@ model users {
   user_roles           user_roles[]           @relation("user_roles")
   sessions             user_sessions[]
   user_sedes           user_sedes[]
-  tenant               tenants?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
   area                 areas?                 @relation(fields: [area_id], references: [id], onUpdate: NoAction)
   user_permissions     user_permissions[]     @relation("user_permissions")
   permissions_granted  user_permissions[]     @relation("permission_granted_by")
 
-  @@index([tenant_id, is_active], map: "idx_users_active")
+  @@index([is_active], map: "idx_users_active")
   @@index([email], map: "idx_users_email")
-  @@index([tenant_id], map: "idx_users_tenant")
   @@index([username], map: "idx_users_username")
   @@index([area_id], map: "idx_users_area")
   @@index([document_number], map: "idx_users_document")

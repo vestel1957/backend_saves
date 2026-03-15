@@ -19,8 +19,8 @@ export class PermissionsController {
     private auditService: AuditService,
   ) {}
 
-  private auditCtx(userId: string, tenantId: string, req: Request) {
-    return { user_id: userId, tenant_id: tenantId, ip_address: req.ip, user_agent: req.headers['user-agent'] as string };
+  private auditCtx(userId: string, req: Request) {
+    return { user_id: userId, ip_address: req.ip, user_agent: req.headers['user-agent'] as string };
   }
 
   @RequirePermission('configuracion', 'roles', 'ver')
@@ -29,19 +29,16 @@ export class PermissionsController {
   @ApiQuery({ name: 'module', required: false, type: String })
   @ApiQuery({ name: 'submodule', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Lista de permisos' })
-  findAll(
-    @CurrentUser('tenant_id') tenantId: string,
-    @Query() query: { module?: string; submodule?: string },
-  ) {
-    return this.permissionsService.findAll(tenantId, query);
+  findAll(@Query() query: { module?: string; submodule?: string }) {
+    return this.permissionsService.findAll(query);
   }
 
   @RequirePermission('configuracion', 'roles', 'ver')
   @Get('grouped')
-  @ApiOperation({ summary: 'Listar permisos agrupados por módulo y submódulo' })
+  @ApiOperation({ summary: 'Listar permisos agrupados por modulo y submodulo' })
   @ApiResponse({ status: 200, description: 'Permisos agrupados' })
-  findAllGrouped(@CurrentUser('tenant_id') tenantId: string) {
-    return this.permissionsService.findAllGrouped(tenantId);
+  findAllGrouped() {
+    return this.permissionsService.findAllGrouped();
   }
 
   @RequirePermission('configuracion', 'roles', 'ver')
@@ -49,11 +46,8 @@ export class PermissionsController {
   @ApiOperation({ summary: 'Obtener detalle de un permiso' })
   @ApiResponse({ status: 200, description: 'Detalle del permiso' })
   @ApiResponse({ status: 404, description: 'Permiso no encontrado' })
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
-  ) {
-    return this.permissionsService.findOne(id, tenantId);
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.permissionsService.findOne(id);
   }
 
   @RequirePermission('configuracion', 'roles', 'crear')
@@ -62,15 +56,14 @@ export class PermissionsController {
   @ApiResponse({ status: 201, description: 'Permiso creado' })
   @ApiResponse({ status: 409, description: 'El permiso ya existe' })
   async create(
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: CreatePermissionDto,
     @Req() req: Request,
   ) {
-    const result = await this.permissionsService.create(tenantId, body);
+    const result = await this.permissionsService.create(body);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'permisos', action: 'crear',
       resource_id: result.id,
       new_data: { module: body.module, submodule: body.submodule, action: body.action },
@@ -82,17 +75,16 @@ export class PermissionsController {
   @RequirePermission('configuracion', 'roles', 'crear')
   @Post('bulk')
   @ApiOperation({ summary: 'Crear permisos en lote' })
-  @ApiResponse({ status: 201, description: 'Resultado de creación masiva' })
+  @ApiResponse({ status: 201, description: 'Resultado de creacion masiva' })
   async createBulk(
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: CreateBulkPermissionsDto,
     @Req() req: Request,
   ) {
-    const result = await this.permissionsService.createBulk(tenantId, body);
+    const result = await this.permissionsService.createBulk(body);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'permisos', action: 'crear_masivo',
       new_data: { count: result.results.filter((r) => r.status === 'created').length },
     });
@@ -102,19 +94,18 @@ export class PermissionsController {
 
   @RequirePermission('configuracion', 'roles', 'editar')
   @Patch(':id')
-  @ApiOperation({ summary: 'Actualizar descripción del permiso' })
+  @ApiOperation({ summary: 'Actualizar descripcion del permiso' })
   @ApiResponse({ status: 200, description: 'Permiso actualizado' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: UpdatePermissionDto,
     @Req() req: Request,
   ) {
-    const result = await this.permissionsService.update(id, tenantId, body);
+    const result = await this.permissionsService.update(id, body);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'permisos', action: 'editar',
       resource_id: id,
       new_data: body,
@@ -130,14 +121,13 @@ export class PermissionsController {
   @ApiResponse({ status: 404, description: 'Permiso no encontrado' })
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    const result = await this.permissionsService.remove(id, tenantId);
+    const result = await this.permissionsService.remove(id);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'permisos', action: 'eliminar',
       resource_id: id,
     });

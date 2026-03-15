@@ -9,24 +9,22 @@ export class RolesService {
 
   /**
    * Detecta ciclos en la jerarquia de roles.
-   * Recorre la cadena de parent_role_id para verificar que asignar
-   * parent_role_id a role_id no cree una referencia circular.
    */
-  private async detectCycle(role_id: string, parent_role_id: string, tenant_id: string): Promise<boolean> {
+  private async detectCycle(role_id: string, parent_role_id: string): Promise<boolean> {
     const visited = new Set<string>();
     let current: string | null = parent_role_id;
 
     while (current) {
       if (current === role_id) {
-        return true; // Ciclo detectado
+        return true;
       }
       if (visited.has(current)) {
-        return false; // Ya visitado, no hay ciclo con role_id
+        return false;
       }
       visited.add(current);
 
       const parent = await this.prisma.roles.findFirst({
-        where: { id: current, tenant_id },
+        where: { id: current },
         select: { parent_role_id: true },
       });
 
@@ -37,8 +35,8 @@ export class RolesService {
   }
 
   // ─── LISTAR ROLES ──────────────────────────────────────
-  async findAll(tenant_id: string, query: { is_active?: boolean }) {
-    const where: any = { tenant_id };
+  async findAll(query: { is_active?: boolean }) {
+    const where: any = {};
 
     if (query.is_active !== undefined) {
       where.is_active = query.is_active;
@@ -74,9 +72,9 @@ export class RolesService {
   }
 
   // ─── OBTENER UN ROL ────────────────────────────────────
-  async findOne(id: string, tenant_id: string) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id, tenant_id },
+  async findOne(id: string) {
+    const role = await this.prisma.roles.findUnique({
+      where: { id },
       select: {
         id: true,
         name: true,
@@ -113,37 +111,33 @@ export class RolesService {
   }
 
   // ─── CREAR ROL ─────────────────────────────────────────
-  async create(tenant_id: string, data: {
+  async create(data: {
     name: string;
     description?: string;
     parent_role_id?: string;
     permission_ids?: string[];
   }) {
-    // Verificar nombre único en el tenant
     const existing = await this.prisma.roles.findFirst({
-      where: { tenant_id, name: data.name },
+      where: { name: data.name },
     });
 
     if (existing) {
       throw new ConflictException('Ya existe un rol con ese nombre');
     }
 
-    // Verificar que el rol padre existe y es del mismo tenant
     if (data.parent_role_id) {
-      const parent = await this.prisma.roles.findFirst({
-        where: { id: data.parent_role_id, tenant_id },
+      const parent = await this.prisma.roles.findUnique({
+        where: { id: data.parent_role_id },
       });
 
       if (!parent) {
-        throw new NotFoundException('Rol padre no encontrado en este tenant');
+        throw new NotFoundException('Rol padre no encontrado');
       }
     }
 
-    // Crear rol y asignar permisos en transaccion
     const role = await this.prisma.$transaction(async (tx) => {
       const newRole = await tx.roles.create({
         data: {
-          tenant_id,
           name: data.name,
           description: data.description,
           parent_role_id: data.parent_role_id,
@@ -158,16 +152,12 @@ export class RolesService {
       });
 
       if (data.permission_ids && data.permission_ids.length > 0) {
-        // Verificar que los permisos son del mismo tenant
         const permissions = await tx.permissions.findMany({
-          where: {
-            id: { in: data.permission_ids },
-            tenant_id,
-          },
+          where: { id: { in: data.permission_ids } },
         });
 
         if (permissions.length !== data.permission_ids.length) {
-          throw new NotFoundException('Uno o más permisos no encontrados en este tenant');
+          throw new NotFoundException('Uno o mas permisos no encontrados');
         }
 
         await tx.role_permissions.createMany({
@@ -181,19 +171,19 @@ export class RolesService {
       return newRole;
     });
 
-    this.logger.log(`Rol creado: ${role.name} (tenant: ${tenant_id})`);
+    this.logger.log(`Rol creado: ${role.name}`);
     return role;
   }
 
   // ─── ACTUALIZAR ROL ────────────────────────────────────
-  async update(id: string, tenant_id: string, data: {
+  async update(id: string, data: {
     name?: string;
     description?: string;
     is_active?: boolean;
     parent_role_id?: string;
   }) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id, tenant_id },
+    const role = await this.prisma.roles.findUnique({
+      where: { id },
     });
 
     if (!role) {
@@ -204,21 +194,20 @@ export class RolesService {
       throw new ForbiddenException('No se puede modificar un rol del sistema');
     }
 
-    // Si cambia el padre, verificar que no cree un ciclo
     if (data.parent_role_id) {
       if (data.parent_role_id === id) {
         throw new ConflictException('Un rol no puede ser su propio padre');
       }
 
-      const parent = await this.prisma.roles.findFirst({
-        where: { id: data.parent_role_id, tenant_id },
+      const parent = await this.prisma.roles.findUnique({
+        where: { id: data.parent_role_id },
       });
 
       if (!parent) {
-        throw new NotFoundException('Rol padre no encontrado en este tenant');
+        throw new NotFoundException('Rol padre no encontrado');
       }
 
-      const hasCycle = await this.detectCycle(id, data.parent_role_id, tenant_id);
+      const hasCycle = await this.detectCycle(id, data.parent_role_id);
       if (hasCycle) {
         throw new ConflictException(
           'No se puede asignar este rol padre porque crearia una referencia circular en la jerarquia',
@@ -226,10 +215,9 @@ export class RolesService {
       }
     }
 
-    // Si cambia el nombre, verificar que no exista otro con ese nombre
     if (data.name && data.name !== role.name) {
       const existing = await this.prisma.roles.findFirst({
-        where: { tenant_id, name: data.name, id: { not: id } },
+        where: { name: data.name, id: { not: id } },
       });
 
       if (existing) {
@@ -251,9 +239,9 @@ export class RolesService {
   }
 
   // ─── ELIMINAR ROL ──────────────────────────────────────
-  async remove(id: string, tenant_id: string) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id, tenant_id },
+  async remove(id: string) {
+    const role = await this.prisma.roles.findUnique({
+      where: { id },
     });
 
     if (!role) {
@@ -266,14 +254,14 @@ export class RolesService {
 
     await this.prisma.roles.delete({ where: { id } });
 
-    this.logger.warn(`Rol eliminado: ${id} (tenant: ${tenant_id})`);
+    this.logger.warn(`Rol eliminado: ${id}`);
     return { message: 'Rol eliminado exitosamente' };
   }
 
   // ─── PERMISOS DEL ROL ──────────────────────────────────
-  async getRolePermissions(id: string, tenant_id: string) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id, tenant_id },
+  async getRolePermissions(id: string) {
+    const role = await this.prisma.roles.findUnique({
+      where: { id },
       select: {
         role_permissions: {
           include: {
@@ -296,27 +284,21 @@ export class RolesService {
   }
 
   // ─── ASIGNAR PERMISOS AL ROL ───────────────────────────
-  async assignPermissions(id: string, tenant_id: string, data: {
-    permission_ids: string[];
-  }) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id, tenant_id },
+  async assignPermissions(id: string, data: { permission_ids: string[] }) {
+    const role = await this.prisma.roles.findUnique({
+      where: { id },
     });
 
     if (!role) {
       throw new NotFoundException('Rol no encontrado');
     }
 
-    // Verificar que los permisos son del mismo tenant
     const permissions = await this.prisma.permissions.findMany({
-      where: {
-        id: { in: data.permission_ids },
-        tenant_id,
-      },
+      where: { id: { in: data.permission_ids } },
     });
 
     if (permissions.length !== data.permission_ids.length) {
-      throw new NotFoundException('Uno o más permisos no encontrados en este tenant');
+      throw new NotFoundException('Uno o mas permisos no encontrados');
     }
 
     await this.prisma.role_permissions.createMany({
@@ -331,9 +313,9 @@ export class RolesService {
   }
 
   // ─── QUITAR PERMISO DEL ROL ────────────────────────────
-  async removePermission(role_id: string, permission_id: string, tenant_id: string) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id: role_id, tenant_id },
+  async removePermission(role_id: string, permission_id: string) {
+    const role = await this.prisma.roles.findUnique({
+      where: { id: role_id },
     });
 
     if (!role) {
@@ -350,9 +332,9 @@ export class RolesService {
   }
 
   // ─── USUARIOS DEL ROL ──────────────────────────────────
-  async getRoleUsers(id: string, tenant_id: string) {
-    const role = await this.prisma.roles.findFirst({
-      where: { id, tenant_id },
+  async getRoleUsers(id: string) {
+    const role = await this.prisma.roles.findUnique({
+      where: { id },
       select: {
         user_roles: {
           include: {

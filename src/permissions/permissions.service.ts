@@ -8,16 +8,11 @@ export class PermissionsService {
   constructor(private prisma: PrismaService) {}
 
   // ─── LISTAR PERMISOS ───────────────────────────────────
-  async findAll(tenant_id: string, query: { module?: string; submodule?: string }) {
-    const where: any = { tenant_id };
+  async findAll(query: { module?: string; submodule?: string }) {
+    const where: any = {};
 
-    if (query.module) {
-      where.module = query.module;
-    }
-
-    if (query.submodule) {
-      where.submodule = query.submodule;
-    }
+    if (query.module) where.module = query.module;
+    if (query.submodule) where.submodule = query.submodule;
 
     return this.prisma.permissions.findMany({
       where,
@@ -33,11 +28,9 @@ export class PermissionsService {
     });
   }
 
-  // ─── LISTAR AGRUPADOS POR MÓDULO ───────────────────────
-  // Retorna los permisos organizados por módulo y submódulo
-  async findAllGrouped(tenant_id: string) {
+  // ─── LISTAR AGRUPADOS POR MODULO ───────────────────────
+  async findAllGrouped() {
     const permissions = await this.prisma.permissions.findMany({
-      where: { tenant_id },
       orderBy: [{ module: 'asc' }, { submodule: 'asc' }, { action: 'asc' }],
       select: {
         id: true,
@@ -48,7 +41,6 @@ export class PermissionsService {
       },
     });
 
-    // Agrupar por módulo → submódulo → acciones
     const grouped: Record<string, Record<string, any[]>> = {};
 
     for (const perm of permissions) {
@@ -70,9 +62,9 @@ export class PermissionsService {
   }
 
   // ─── OBTENER UN PERMISO ────────────────────────────────
-  async findOne(id: string, tenant_id: string) {
-    const permission = await this.prisma.permissions.findFirst({
-      where: { id, tenant_id },
+  async findOne(id: string) {
+    const permission = await this.prisma.permissions.findUnique({
+      where: { id },
       select: {
         id: true,
         module: true,
@@ -92,16 +84,14 @@ export class PermissionsService {
   }
 
   // ─── CREAR PERMISO ─────────────────────────────────────
-  async create(tenant_id: string, data: {
+  async create(data: {
     module: string;
     submodule: string;
     action: string;
     description?: string;
   }) {
-    // Verificar que no exista la misma combinación en el tenant
     const existing = await this.prisma.permissions.findFirst({
       where: {
-        tenant_id,
         module: data.module,
         submodule: data.submodule,
         action: data.action,
@@ -115,10 +105,7 @@ export class PermissionsService {
     }
 
     return this.prisma.permissions.create({
-      data: {
-        tenant_id,
-        ...data,
-      },
+      data,
       select: {
         id: true,
         module: true,
@@ -131,8 +118,7 @@ export class PermissionsService {
   }
 
   // ─── CREAR PERMISOS MASIVOS ────────────────────────────
-  // Crea varios permisos de una sola vez
-  async createBulk(tenant_id: string, data: {
+  async createBulk(data: {
     permissions: {
       module: string;
       submodule: string;
@@ -141,19 +127,18 @@ export class PermissionsService {
     }[];
   }) {
     const results: {
-        module: string;
-        submodule: string;
-        action: string;
-        status: string;
-        id?: string;
-        description?: string | null;
+      module: string;
+      submodule: string;
+      action: string;
+      status: string;
+      id?: string;
+      description?: string | null;
     }[] = [];
 
     for (const perm of data.permissions) {
       try {
         const created = await this.prisma.permissions.create({
           data: {
-            tenant_id,
             module: perm.module,
             submodule: perm.submodule,
             action: perm.action,
@@ -185,11 +170,9 @@ export class PermissionsService {
   }
 
   // ─── ACTUALIZAR PERMISO ────────────────────────────────
-  async update(id: string, tenant_id: string, data: {
-    description?: string;
-  }) {
-    const permission = await this.prisma.permissions.findFirst({
-      where: { id, tenant_id },
+  async update(id: string, data: { description?: string }) {
+    const permission = await this.prisma.permissions.findUnique({
+      where: { id },
     });
 
     if (!permission) {
@@ -211,9 +194,9 @@ export class PermissionsService {
   }
 
   // ─── ELIMINAR PERMISO ──────────────────────────────────
-  async remove(id: string, tenant_id: string) {
-    const permission = await this.prisma.permissions.findFirst({
-      where: { id, tenant_id },
+  async remove(id: string) {
+    const permission = await this.prisma.permissions.findUnique({
+      where: { id },
     });
 
     if (!permission) {

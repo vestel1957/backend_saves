@@ -19,8 +19,8 @@ export class RolesController {
     private auditService: AuditService,
   ) {}
 
-  private auditCtx(userId: string, tenantId: string, req: Request) {
-    return { user_id: userId, tenant_id: tenantId, ip_address: req.ip, user_agent: req.headers['user-agent'] as string };
+  private auditCtx(userId: string, req: Request) {
+    return { user_id: userId, ip_address: req.ip, user_agent: req.headers['user-agent'] as string };
   }
 
   @RequirePermission('configuracion', 'roles', 'ver')
@@ -28,11 +28,8 @@ export class RolesController {
   @ApiOperation({ summary: 'Listar roles' })
   @ApiQuery({ name: 'is_active', required: false, type: Boolean })
   @ApiResponse({ status: 200, description: 'Lista de roles con contadores' })
-  findAll(
-    @CurrentUser('tenant_id') tenantId: string,
-    @Query() query: { is_active?: string },
-  ) {
-    return this.rolesService.findAll(tenantId, {
+  findAll(@Query() query: { is_active?: string }) {
+    return this.rolesService.findAll({
       is_active: query.is_active ? query.is_active === 'true' : undefined,
     });
   }
@@ -42,11 +39,8 @@ export class RolesController {
   @ApiOperation({ summary: 'Obtener detalle de un rol' })
   @ApiResponse({ status: 200, description: 'Detalle del rol con permisos' })
   @ApiResponse({ status: 404, description: 'Rol no encontrado' })
-  findOne(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
-  ) {
-    return this.rolesService.findOne(id, tenantId);
+  findOne(@Param('id', ParseUUIDPipe) id: string) {
+    return this.rolesService.findOne(id);
   }
 
   @RequirePermission('configuracion', 'roles', 'crear')
@@ -55,15 +49,14 @@ export class RolesController {
   @ApiResponse({ status: 201, description: 'Rol creado' })
   @ApiResponse({ status: 409, description: 'Ya existe un rol con ese nombre' })
   async create(
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: CreateRoleDto,
     @Req() req: Request,
   ) {
-    const result = await this.rolesService.create(tenantId, body);
+    const result = await this.rolesService.create(body);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'roles', action: 'crear',
       resource_id: result.id,
       new_data: { name: result.name },
@@ -79,15 +72,14 @@ export class RolesController {
   @ApiResponse({ status: 403, description: 'No se puede modificar rol del sistema' })
   async update(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: UpdateRoleDto,
     @Req() req: Request,
   ) {
-    const result = await this.rolesService.update(id, tenantId, body);
+    const result = await this.rolesService.update(id, body);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'roles', action: 'editar',
       resource_id: id,
       new_data: body,
@@ -103,14 +95,13 @@ export class RolesController {
   @ApiResponse({ status: 403, description: 'No se puede eliminar rol del sistema' })
   async remove(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    const result = await this.rolesService.remove(id, tenantId);
+    const result = await this.rolesService.remove(id);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'roles', action: 'eliminar',
       resource_id: id,
     });
@@ -122,11 +113,8 @@ export class RolesController {
   @Get(':id/permissions')
   @ApiOperation({ summary: 'Obtener permisos del rol' })
   @ApiResponse({ status: 200, description: 'Lista de permisos asignados' })
-  getRolePermissions(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
-  ) {
-    return this.rolesService.getRolePermissions(id, tenantId);
+  getRolePermissions(@Param('id', ParseUUIDPipe) id: string) {
+    return this.rolesService.getRolePermissions(id);
   }
 
   @RequirePermission('configuracion', 'roles', 'editar')
@@ -135,15 +123,14 @@ export class RolesController {
   @ApiResponse({ status: 201, description: 'Permisos asignados' })
   async assignPermissions(
     @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Body() body: AssignRolePermissionsDto,
     @Req() req: Request,
   ) {
-    const result = await this.rolesService.assignPermissions(id, tenantId, body);
+    const result = await this.rolesService.assignPermissions(id, body);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'roles', action: 'asignar_permisos',
       resource_id: id,
       new_data: { permission_ids: body.permission_ids },
@@ -159,14 +146,13 @@ export class RolesController {
   async removePermission(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('permissionId', ParseUUIDPipe) permissionId: string,
-    @CurrentUser('tenant_id') tenantId: string,
     @CurrentUser('id') userId: string,
     @Req() req: Request,
   ) {
-    const result = await this.rolesService.removePermission(id, permissionId, tenantId);
+    const result = await this.rolesService.removePermission(id, permissionId);
 
     this.auditService.log({
-      context: this.auditCtx(userId, tenantId, req),
+      context: this.auditCtx(userId, req),
       module: 'configuracion', submodule: 'roles', action: 'remover_permiso',
       resource_id: id,
       old_data: { permission_id: permissionId },
@@ -179,10 +165,7 @@ export class RolesController {
   @Get(':id/users')
   @ApiOperation({ summary: 'Listar usuarios con este rol' })
   @ApiResponse({ status: 200, description: 'Lista de usuarios' })
-  getRoleUsers(
-    @Param('id', ParseUUIDPipe) id: string,
-    @CurrentUser('tenant_id') tenantId: string,
-  ) {
-    return this.rolesService.getRoleUsers(id, tenantId);
+  getRoleUsers(@Param('id', ParseUUIDPipe) id: string) {
+    return this.rolesService.getRoleUsers(id);
   }
 }

@@ -26,7 +26,7 @@ export class UsersService {
   }
 
   // ─── LISTAR USUARIOS ──────────────────────────────────
-  async findAll(tenant_id: string, query: {
+  async findAll(query: {
     page?: number;
     limit?: number;
     search?: string;
@@ -36,7 +36,7 @@ export class UsersService {
     const limit = Math.min(100, Math.max(1, query.limit || 10));
     const skip = (page - 1) * limit;
 
-    const where: any = { tenant_id, deleted_at: null };
+    const where: any = { deleted_at: null };
 
     if (query.is_active !== undefined) {
       where.is_active = query.is_active;
@@ -72,7 +72,6 @@ export class UsersService {
           last_login_at: true,
           created_at: true,
           area: { select: { id: true, name: true } },
-          // ✅ sede va a través de user_sedes
           user_sedes: {
             select: {
               sede: { select: { id: true, name: true } },
@@ -111,9 +110,9 @@ export class UsersService {
   }
 
   // ─── OBTENER UN USUARIO ────────────────────────────────
-  async findOne(id: string, tenant_id: string) {
+  async findOne(id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
       select: {
         id: true,
         email: true,
@@ -141,7 +140,6 @@ export class UsersService {
         created_at: true,
         updated_at: true,
         area: { select: { id: true, name: true } },
-        // ✅ sede va a través de user_sedes
         user_sedes: {
           select: {
             sede_id: true,
@@ -192,7 +190,7 @@ export class UsersService {
   }
 
   // ─── CREAR USUARIO ─────────────────────────────────────
-  async create(tenant_id: string, data: {
+  async create(data: {
     email: string;
     password?: string;
     first_name?: string;
@@ -210,36 +208,18 @@ export class UsersService {
     phone?: string;
     phone_alt?: string;
     area_id?: string;
-    sede_ids?: string[];  // ✅ Se usa para crear user_sedes, no en users directamente
+    sede_ids?: string[];
     role_id?: string;
     avatar_url?: string;
     signature_url?: string;
     document_urls?: string[];
   }, assigned_by: string) {
-    // Verificar cuota de usuarios del tenant
-    const tenant = await this.prisma.tenants.findUnique({
-      where: { id: tenant_id },
-      select: { max_users: true, name: true },
-    });
-
-    if (tenant?.max_users) {
-      const currentUserCount = await this.prisma.users.count({
-        where: { tenant_id, deleted_at: null },
-      });
-
-      if (currentUserCount >= tenant.max_users) {
-        throw new ForbiddenException(
-          `Se ha alcanzado el límite de usuarios (${tenant.max_users}) para este tenant. Contacta al administrador para ampliar tu plan.`,
-        );
-      }
-    }
-
     const existing = await this.prisma.users.findFirst({
       where: { email: data.email },
     });
 
     if (existing) {
-      throw new ConflictException('El email ya está registrado');
+      throw new ConflictException('El email ya esta registrado');
     }
 
     // Generar username a partir del email
@@ -254,12 +234,11 @@ export class UsersService {
     const plainPassword = data.password || this.generateTemporaryPassword();
     const password_hash = await bcrypt.hash(plainPassword, 12);
 
-    this.logger.log(`Creando usuario: ${data.email} (tenant: ${tenant_id})`);
+    this.logger.log(`Creando usuario: ${data.email}`);
 
     const user = await this.prisma.$transaction(async (tx) => {
       const newUser = await tx.users.create({
         data: {
-          tenant_id,
           email: data.email,
           username,
           password_hash,
@@ -276,7 +255,7 @@ export class UsersService {
           department: data.department,
           country: data.country || 'Colombia',
           phone: data.phone,
-          area_id: data.area_id || null,   // ✅ area_id sí existe en users
+          area_id: data.area_id || null,
           avatar_url: data.avatar_url || null,
           signature_url: data.signature_url || null,
         },
@@ -293,7 +272,6 @@ export class UsersService {
         },
       });
 
-      // ✅ sedes se asignan a través de user_sedes
       if (data.sede_ids?.length) {
         await tx.user_sedes.createMany({
           data: data.sede_ids.map((sede_id) => ({
@@ -304,7 +282,6 @@ export class UsersService {
         });
       }
 
-      // Asignar rol
       if (data.role_id) {
         await tx.user_roles.create({
           data: {
@@ -318,7 +295,6 @@ export class UsersService {
       return newUser;
     });
 
-    // Enviar credenciales por correo (no bloquea la respuesta)
     this.emailService
       .sendWelcomeCredentials(data.email, plainPassword, data.first_name)
       .catch((err) => this.logger.error('Error enviando credenciales por correo', err));
@@ -327,7 +303,7 @@ export class UsersService {
   }
 
   // ─── ACTUALIZAR USUARIO ────────────────────────────────
-  async update(id: string, tenant_id: string, data: {
+  async update(id: string, data: {
     email?: string;
     first_name?: string;
     last_name?: string;
@@ -345,12 +321,12 @@ export class UsersService {
     phone?: string;
     phone_alt?: string;
     area_id?: string | null;
-    sede_id?: string | null;  // Se usa para user_sedes
+    sede_id?: string | null;
     is_active?: boolean;
     role_id?: string;
   }, updated_by?: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -375,7 +351,7 @@ export class UsersService {
           department: data.department,
           country: data.country,
           phone: data.phone,
-          area_id: data.area_id,  // ✅ area_id sí existe en users
+          area_id: data.area_id,
           is_active: data.is_active,
         },
         select: {
@@ -390,7 +366,6 @@ export class UsersService {
           is_active: true,
           updated_at: true,
           area: { select: { id: true, name: true } },
-          // ✅ sede va a través de user_sedes
           user_sedes: {
             select: {
               sede: { select: { id: true, name: true } },
@@ -399,9 +374,7 @@ export class UsersService {
         },
       });
 
-      // ✅ Actualizar sede a través de user_sedes
       if (data.sede_id !== undefined) {
-        // Eliminar todas las sedes actuales del usuario
         await tx.user_sedes.deleteMany({ where: { user_id: id } });
 
         if (data.sede_id) {
@@ -415,7 +388,6 @@ export class UsersService {
         }
       }
 
-      // Reemplazar rol si se envía
       if (data.role_id !== undefined) {
         await tx.user_roles.deleteMany({ where: { user_id: id } });
 
@@ -439,9 +411,9 @@ export class UsersService {
   }
 
   // ─── ELIMINAR USUARIO (SOFT DELETE) ────────────────────
-  async remove(id: string, tenant_id: string) {
+  async remove(id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -449,7 +421,6 @@ export class UsersService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      // Soft delete: marcar con fecha de eliminacion
       await tx.users.update({
         where: { id },
         data: {
@@ -458,27 +429,25 @@ export class UsersService {
         },
       });
 
-      // Invalidar todas las sesiones activas del usuario
       await tx.user_sessions.deleteMany({ where: { user_id: id } });
     });
 
-    this.logger.warn(`Usuario eliminado (soft): ${id} (tenant: ${tenant_id})`);
+    this.logger.warn(`Usuario eliminado (soft): ${id}`);
     return { message: 'Usuario eliminado exitosamente' };
   }
 
-  // ─── CAMBIAR CONTRASEÑA ────────────────────────────────
-  async changePassword(id: string, tenant_id: string, data: {
+  // ─── CAMBIAR CONTRASENA ────────────────────────────────
+  async changePassword(id: string, data: {
     new_password: string;
   }, changed_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    // Validar que la nueva contraseña no sea igual a las últimas 5
     const passwordHistory = await this.prisma.password_history.findMany({
       where: { user_id: id },
       orderBy: { changed_at: 'desc' },
@@ -491,7 +460,7 @@ export class UsersService {
     for (const oldHash of hashesToCheck) {
       if (await bcrypt.compare(data.new_password, oldHash)) {
         throw new BadRequestException(
-          'La nueva contraseña no puede ser igual a las últimas 5 contraseñas utilizadas',
+          'La nueva contrasena no puede ser igual a las ultimas 5 contrasenas utilizadas',
         );
       }
     }
@@ -513,34 +482,33 @@ export class UsersService {
       });
     });
 
-    return { message: 'Contraseña actualizada exitosamente' };
+    return { message: 'Contrasena actualizada exitosamente' };
   }
 
   // ─── RESET PASSWORD POR ADMIN ─────────────────────────
-  async adminResetPassword(id: string, tenant_id: string, data: {
+  async adminResetPassword(id: string, data: {
     new_password: string;
   }, changed_by: string) {
-    const result = await this.changePassword(id, tenant_id, data, changed_by);
+    const result = await this.changePassword(id, data, changed_by);
 
-    // Obtener datos del usuario para notificarle
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id },
       select: { email: true, first_name: true },
     });
 
     if (user) {
       this.emailService
         .sendAdminPasswordReset(user.email, user.first_name ?? undefined)
-        .catch((err) => this.logger.error('Error enviando notificación de reset por admin', err));
+        .catch((err) => this.logger.error('Error enviando notificacion de reset por admin', err));
     }
 
     return result;
   }
 
   // ─── DESACTIVAR / ACTIVAR USUARIO ─────────────────────
-  async toggleStatus(id: string, tenant_id: string) {
+  async toggleStatus(id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -560,9 +528,9 @@ export class UsersService {
   }
 
   // ─── ROLES DEL USUARIO ─────────────────────────────────
-  async getUserRoles(id: string, tenant_id: string) {
+  async getUserRoles(id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
       select: {
         user_roles: {
           select: {
@@ -586,12 +554,12 @@ export class UsersService {
   }
 
   // ─── ASIGNAR ROLES ─────────────────────────────────────
-  async assignRoles(id: string, tenant_id: string, data: {
+  async assignRoles(id: string, data: {
     role_ids: string[];
     expires_at?: string;
   }, assigned_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -601,13 +569,12 @@ export class UsersService {
     const roles = await this.prisma.roles.findMany({
       where: {
         id: { in: data.role_ids },
-        tenant_id,
         is_active: true,
       },
     });
 
     if (roles.length !== data.role_ids.length) {
-      throw new NotFoundException('Uno o más roles no encontrados en este tenant');
+      throw new NotFoundException('Uno o mas roles no encontrados');
     }
 
     await this.prisma.user_roles.createMany({
@@ -624,9 +591,9 @@ export class UsersService {
   }
 
   // ─── QUITAR ROL ────────────────────────────────────────
-  async removeRole(user_id: string, role_id: string, tenant_id: string) {
+  async removeRole(user_id: string, role_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id: user_id, tenant_id, deleted_at: null },
+      where: { id: user_id, deleted_at: null },
     });
 
     if (!user) {
@@ -643,9 +610,9 @@ export class UsersService {
   }
 
   // ─── PERMISOS DEL USUARIO (COMBINADOS) ─────────────────
-  async getUserPermissions(id: string, tenant_id: string) {
+  async getUserPermissions(id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -658,7 +625,6 @@ export class UsersService {
       JOIN role_permissions rp ON rp.role_id = ur.role_id
       JOIN permissions p ON p.id = rp.permission_id
       WHERE ur.user_id = ${id}::uuid
-      AND p.tenant_id = ${tenant_id}::uuid
     ` as { permission_id: string; module: string; submodule: string; action: string }[];
 
     const extraPermissions = await this.prisma.user_permissions.findMany({
@@ -699,11 +665,11 @@ export class UsersService {
   }
 
   // ─── ASIGNAR PERMISOS EXTRA ─────────────────────────────
-  async assignExtraPermissions(id: string, tenant_id: string, data: {
+  async assignExtraPermissions(id: string, data: {
     permission_ids: string[];
   }, granted_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -711,14 +677,11 @@ export class UsersService {
     }
 
     const permissions = await this.prisma.permissions.findMany({
-      where: {
-        id: { in: data.permission_ids },
-        tenant_id,
-      },
+      where: { id: { in: data.permission_ids } },
     });
 
     if (permissions.length !== data.permission_ids.length) {
-      throw new NotFoundException('Uno o más permisos no encontrados en este tenant');
+      throw new NotFoundException('Uno o mas permisos no encontrados');
     }
 
     await this.prisma.user_permissions.createMany({
@@ -734,9 +697,9 @@ export class UsersService {
   }
 
   // ─── QUITAR PERMISO EXTRA ──────────────────────────────
-  async removeExtraPermission(user_id: string, permission_id: string, tenant_id: string) {
+  async removeExtraPermission(user_id: string, permission_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id: user_id, tenant_id, deleted_at: null },
+      where: { id: user_id, deleted_at: null },
     });
 
     if (!user) {
@@ -753,11 +716,11 @@ export class UsersService {
   }
 
   // ─── REEMPLAZAR PERMISOS EXTRA ─────────────────────────
-  async replaceExtraPermissions(id: string, tenant_id: string, data: {
+  async replaceExtraPermissions(id: string, data: {
     permission_ids: string[];
   }, granted_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id, deleted_at: null },
+      where: { id, deleted_at: null },
     });
 
     if (!user) {
@@ -766,14 +729,11 @@ export class UsersService {
 
     if (data.permission_ids.length > 0) {
       const permissions = await this.prisma.permissions.findMany({
-        where: {
-          id: { in: data.permission_ids },
-          tenant_id,
-        },
+        where: { id: { in: data.permission_ids } },
       });
 
       if (permissions.length !== data.permission_ids.length) {
-        throw new NotFoundException('Uno o más permisos no encontrados en este tenant');
+        throw new NotFoundException('Uno o mas permisos no encontrados');
       }
     }
 
@@ -794,19 +754,19 @@ export class UsersService {
     return { message: 'Permisos extra actualizados exitosamente' };
   }
 
-  // ─── LISTAR ÁREAS ──────────────────────────────────────
-  async getAreas(tenant_id: string) {
+  // ─── LISTAR AREAS ──────────────────────────────────────
+  async getAreas() {
     return this.prisma.areas.findMany({
-      where: { tenant_id, is_active: true },
+      where: { is_active: true },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });
   }
 
   // ─── LISTAR SEDES ──────────────────────────────────────
-  async getSedes(tenant_id: string) {
+  async getSedes() {
     return this.prisma.sedes.findMany({
-      where: { tenant_id, is_active: true },
+      where: { is_active: true },
       select: { id: true, name: true },
       orderBy: { name: 'asc' },
     });

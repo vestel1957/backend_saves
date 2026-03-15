@@ -4,7 +4,6 @@ import { AuditService } from '../services/audit.service';
 import { JwtGuard } from '../../auth/guards/jwt.guard';
 import { PermissionGuard } from '../../auth/guards/permission.guard';
 import { RequirePermission } from '../../auth/decorators/require-permission.decorator';
-import { CurrentUser } from '../../auth/decorators/user-current.decorator';
 import { AuditLogQueryDto } from '../dto/audit-log-query.dto';
 
 @ApiTags('Audit')
@@ -16,13 +15,9 @@ export class AuditLogController {
 
   @RequirePermission('sistema', 'auditoria', 'ver')
   @Get()
-  @ApiOperation({ summary: 'Consultar logs de auditoría con filtros' })
+  @ApiOperation({ summary: 'Consultar logs de auditoria con filtros' })
   @ApiResponse({ status: 200, description: 'Lista paginada de audit logs' })
-  findAll(
-    @CurrentUser('tenant_id') tenantId: string,
-    @CurrentUser('is_super_admin') isSuperAdmin: boolean,
-    @Query() query: AuditLogQueryDto,
-  ) {
-    return this.auditService.findAll(tenantId, isSuperAdmin, query);
+  findAll(@Query() query: AuditLogQueryDto) {
+    return this.auditService.findAll(query);
   }
 }

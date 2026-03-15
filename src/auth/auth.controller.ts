@@ -12,14 +12,14 @@ import type { Request } from 'express';
 export class AuthController {
   constructor(private authService: AuthService) {}
 
-  // ── PÚBLICOS ────────────────────────────────────────
+  // ── PUBLICOS ────────────────────────────────────────
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60000, limit: 10 } })
-  @ApiOperation({ summary: 'Iniciar sesión' })
+  @ApiOperation({ summary: 'Iniciar sesion' })
   @ApiResponse({ status: 200, description: 'Login exitoso, retorna tokens' })
-  @ApiResponse({ status: 401, description: 'Credenciales inválidas' })
+  @ApiResponse({ status: 401, description: 'Credenciales invalidas' })
   login(@Body() body: LoginDto, @Req() req: Request) {
     return this.authService.login({
       ...body,
@@ -33,7 +33,7 @@ export class AuthController {
   @Throttle({ default: { ttl: 60000, limit: 20 } })
   @ApiOperation({ summary: 'Refrescar tokens' })
   @ApiResponse({ status: 200, description: 'Nuevos tokens generados' })
-  @ApiResponse({ status: 401, description: 'Refresh token inválido o expirado' })
+  @ApiResponse({ status: 401, description: 'Refresh token invalido o expirado' })
   refreshTokens(@Body() body: RefreshTokenDto) {
     return this.authService.refreshTokens(body.refresh_token);
   }
@@ -44,8 +44,8 @@ export class AuthController {
   @Post('logout')
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ summary: 'Cerrar sesión actual' })
-  @ApiResponse({ status: 200, description: 'Sesión cerrada' })
+  @ApiOperation({ summary: 'Cerrar sesion actual' })
+  @ApiResponse({ status: 200, description: 'Sesion cerrada' })
   logout(@Body() body: RefreshTokenDto, @CurrentUser('id') userId: string) {
     return this.authService.logout(body.refresh_token, userId);
   }
@@ -79,17 +79,14 @@ export class AuthController {
       .then((profile) => ({
         ...profile,
         avatar_url: this.toAbsoluteUrl(profile.avatar_url, req),
-        tenant: profile.tenant
-          ? { ...profile.tenant, logo_url: this.toAbsoluteUrl(profile.tenant.logo_url, req) }
-          : profile.tenant,
       }));
   }
 
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60000, limit: 3 } })
-  @ApiOperation({ summary: 'Solicitar código de recuperación de contraseña' })
-  @ApiResponse({ status: 200, description: 'Código enviado si el email existe' })
+  @ApiOperation({ summary: 'Solicitar codigo de recuperacion de contrasena' })
+  @ApiResponse({ status: 200, description: 'Codigo enviado si el email existe' })
   forgotPassword(@Body() body: ForgotPasswordDto) {
     return this.authService.forgotPassword(body.email);
   }
@@ -97,9 +94,9 @@ export class AuthController {
   @Post('verify-code')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60000, limit: 5 } })
-  @ApiOperation({ summary: 'Verificar código de recuperación' })
-  @ApiResponse({ status: 200, description: 'Código verificado' })
-  @ApiResponse({ status: 401, description: 'Código inválido o expirado' })
+  @ApiOperation({ summary: 'Verificar codigo de recuperacion' })
+  @ApiResponse({ status: 200, description: 'Codigo verificado' })
+  @ApiResponse({ status: 401, description: 'Codigo invalido o expirado' })
   verifyResetCode(@Body() body: VerifyCodeDto) {
     return this.authService.verifyResetCode(body.email, body.code);
   }
@@ -107,9 +104,9 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { ttl: 60000, limit: 3 } })
-  @ApiOperation({ summary: 'Restablecer contraseña con código verificado' })
-  @ApiResponse({ status: 200, description: 'Contraseña actualizada' })
-  @ApiResponse({ status: 401, description: 'Código no verificado o expirado' })
+  @ApiOperation({ summary: 'Restablecer contrasena con codigo verificado' })
+  @ApiResponse({ status: 200, description: 'Contrasena actualizada' })
+  @ApiResponse({ status: 401, description: 'Codigo no verificado o expirado' })
   resetPassword(@Body() body: ResetPasswordDto) {
     return this.authService.resetPassword(body.email, body.code, body.new_password);
   }

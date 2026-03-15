@@ -4,7 +4,6 @@ import { paginate, PaginatedResult } from '../helpers/paginate';
 
 export interface AuditContext {
   user_id: string;
-  tenant_id: string;
   ip_address?: string;
   user_agent?: string;
 }
@@ -27,7 +26,6 @@ export class AuditService {
     try {
       await this.prisma.audit_log.create({
         data: {
-          tenant_id: params.context.tenant_id,
           user_id: params.context.user_id,
           module: params.module,
           submodule: params.submodule || null,
@@ -40,14 +38,11 @@ export class AuditService {
         },
       });
     } catch (error) {
-      // Nunca dejar que un fallo de auditoría rompa la operación principal
       this.logger.error('Error registrando audit log', error);
     }
   }
 
   async findAll(
-    tenant_id: string,
-    isSuperAdmin: boolean,
     query: {
       page?: number;
       limit?: number;
@@ -61,11 +56,6 @@ export class AuditService {
     },
   ): Promise<PaginatedResult<any>> {
     const where: any = {};
-
-    // Super admin puede ver todos los tenants, usuarios normales solo el suyo
-    if (!isSuperAdmin) {
-      where.tenant_id = tenant_id;
-    }
 
     if (query.module) where.module = query.module;
     if (query.submodule) where.submodule = query.submodule;

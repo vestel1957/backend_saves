@@ -11,41 +11,22 @@ const BASE_PERMISSIONS = [
   { module: 'configuracion', submodule: 'roles', action: 'editar' },
   { module: 'configuracion', submodule: 'roles', action: 'eliminar' },
   { module: 'sistema', submodule: 'auditoria', action: 'ver' },
-  { module: 'sistema', submodule: 'tenants', action: 'ver' },
-  { module: 'sistema', submodule: 'tenants', action: 'crear' },
-  { module: 'sistema', submodule: 'tenants', action: 'editar' },
-  { module: 'sistema', submodule: 'tenants', action: 'eliminar' },
 ];
 
 async function main() {
   const prisma = new PrismaClient();
 
   try {
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@vestel.com';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@app.com';
     const adminPassword = process.env.ADMIN_PASSWORD || 'Admin123!@#';
 
     console.log('Seeding database...\n');
 
-    // 1. Crear tenant principal
-    const tenant = await prisma.tenants.upsert({
-      where: { slug: 'principal' },
-      update: {},
-      create: {
-        name: 'Principal',
-        slug: 'principal',
-        plan: 'enterprise',
-        max_users: 999,
-        contact_email: adminEmail,
-      },
-    });
-    console.log(`Tenant: ${tenant.name} (${tenant.id})`);
-
-    // 2. Crear permisos base
+    // 1. Crear permisos base
     for (const p of BASE_PERMISSIONS) {
       await prisma.permissions.upsert({
         where: {
-          tenant_id_module_submodule_action: {
-            tenant_id: tenant.id,
+          module_submodule_action: {
             module: p.module,
             submodule: p.submodule,
             action: p.action,
@@ -53,7 +34,6 @@ async function main() {
         },
         update: {},
         create: {
-          tenant_id: tenant.id,
           module: p.module,
           submodule: p.submodule,
           action: p.action,
@@ -63,15 +43,14 @@ async function main() {
     }
     console.log(`Permisos: ${BASE_PERMISSIONS.length} creados/verificados`);
 
-    // 3. Crear rol Administrador
+    // 2. Crear rol Administrador
     let adminRole = await prisma.roles.findFirst({
-      where: { tenant_id: tenant.id, name: 'Administrador' },
+      where: { name: 'Administrador' },
     });
 
     if (!adminRole) {
       adminRole = await prisma.roles.create({
         data: {
-          tenant_id: tenant.id,
           name: 'Administrador',
           description: 'Rol con acceso total al sistema',
           is_system: true,
@@ -80,9 +59,8 @@ async function main() {
     }
     console.log(`Rol: ${adminRole.name} (${adminRole.id})`);
 
-    // 4. Asignar todos los permisos al rol
+    // 3. Asignar todos los permisos al rol
     const allPermissions = await prisma.permissions.findMany({
-      where: { tenant_id: tenant.id },
       select: { id: true },
     });
 
@@ -95,7 +73,7 @@ async function main() {
     });
     console.log(`Permisos asignados al rol: ${allPermissions.length}`);
 
-    // 5. Crear usuario super admin
+    // 4. Crear usuario super admin
     const passwordHash = await bcrypt.hash(adminPassword, 12);
 
     let adminUser = await prisma.users.findUnique({
@@ -105,7 +83,6 @@ async function main() {
     if (!adminUser) {
       adminUser = await prisma.users.create({
         data: {
-          tenant_id: tenant.id,
           email: adminEmail,
           username: 'admin',
           password_hash: passwordHash,
@@ -116,7 +93,7 @@ async function main() {
         },
       });
 
-      // 6. Asignar rol al usuario
+      // 5. Asignar rol al usuario
       await prisma.user_roles.create({
         data: {
           user_id: adminUser.id,
@@ -128,8 +105,7 @@ async function main() {
 
     console.log(`\nSeed completado exitosamente!`);
     console.log(`\n  Email:    ${adminEmail}`);
-    console.log(`  Password: ${adminPassword}`);
-    console.log(`  Tenant:   ${tenant.name} (${tenant.slug})\n`);
+    console.log(`  Password: ${adminPassword}\n`);
   } finally {
     await prisma.$disconnect();
   }

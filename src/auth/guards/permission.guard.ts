@@ -10,14 +10,12 @@ export class PermissionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // Leer el permiso requerido del decorador @RequirePermission
     const requiredPermission = this.reflector.get<{
       module: string;
       submodule: string;
       action: string;
     }>('permission', context.getHandler());
 
-    // Si no tiene @RequirePermission, dejar pasar
     if (!requiredPermission) {
       return true;
     }
@@ -25,12 +23,10 @@ export class PermissionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Si no hay usuario (no paso el JwtGuard), bloquear
     if (!user) {
       throw new ForbiddenException('No autenticado');
     }
 
-    // Super admin tiene acceso a todo
     if (user.is_super_admin) {
       return true;
     }
@@ -39,7 +35,6 @@ export class PermissionGuard implements CanActivate {
     const rolePermission = await this.prisma.role_permissions.findFirst({
       where: {
         permission: {
-          tenant_id: user.tenant_id,
           module: requiredPermission.module,
           submodule: requiredPermission.submodule,
           action: requiredPermission.action,
@@ -68,7 +63,6 @@ export class PermissionGuard implements CanActivate {
       where: {
         user_id: user.id,
         permission: {
-          tenant_id: user.tenant_id,
           module: requiredPermission.module,
           submodule: requiredPermission.submodule,
           action: requiredPermission.action,

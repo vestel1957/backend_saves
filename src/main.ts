@@ -8,7 +8,6 @@ import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 import { JsonLoggerService } from './common/logger/json-logger.service';
 import { validateEnv } from './common/config/env.validation';
-import { PrismaService } from './prisma/prisma.service';
 
 async function bootstrap() {
   // Validar variables de entorno antes de arrancar
@@ -39,7 +38,7 @@ async function bootstrap() {
   // Filtro global que estandariza TODAS las respuestas de error
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // ─── CORS dinámico (env + tenant domains) ─────────────
+  // ─── CORS ─────────────────────────────────────────────
   const corsOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : [];
@@ -51,32 +50,8 @@ async function bootstrap() {
     .filter(Boolean)
     .map((ip) => new RegExp(`^https?:\\/\\/${ip.replace(/\./g, '\\.')}(:\\d+)?$`));
 
-  const prisma = app.get(PrismaService);
-  let cachedTenantDomains: string[] = [];
-  let domainsCacheTime = 0;
-  const CACHE_TTL = 5 * 60 * 1000; // 5 minutos
-
-  async function getTenantDomains(): Promise<string[]> {
-    if (Date.now() - domainsCacheTime < CACHE_TTL) {
-      return cachedTenantDomains;
-    }
-    try {
-      const tenants = await prisma.tenants.findMany({
-        where: { is_active: true, domain: { not: null } },
-        select: { domain: true },
-      });
-      cachedTenantDomains = tenants
-        .map((t) => t.domain!)
-        .filter(Boolean);
-      domainsCacheTime = Date.now();
-    } catch {
-      // Si falla la BD, usar la cache anterior
-    }
-    return cachedTenantDomains;
-  }
-
   app.enableCors({
-    origin: async (origin, callback) => {
+    origin: (origin, callback) => {
       if (!origin) {
         return callback(null, true);
       }
@@ -85,13 +60,6 @@ async function bootstrap() {
       const isAllowedByIp = allowedIpPatterns.some((re) => re.test(origin));
 
       if (isAllowedByEnv || isAllowedByIp) {
-        return callback(null, true);
-      }
-
-      // Verificar dominios de tenants activos
-      const tenantDomains = await getTenantDomains();
-      const originHost = origin.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
-      if (tenantDomains.some((d) => d === origin || d === originHost)) {
         return callback(null, true);
       }
 
@@ -104,24 +72,23 @@ async function bootstrap() {
     optionsSuccessStatus: 204,
   });
 
-  // Swagger solo disponible fuera de producción
+  // Swagger solo disponible fuera de produccion
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('Dashboard Ecommerce API')
+      .setTitle('Dashboard Admin API')
       .setDescription(
-        'API REST para gestión de usuarios, roles, permisos y autenticación multi-tenant',
+        'API REST para gestion de usuarios, roles, permisos y autenticacion',
       )
       .setVersion('1.0')
       .addBearerAuth(
         { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
         'access-token',
       )
-      .addTag('Auth', 'Autenticación y sesiones')
-      .addTag('Users', 'Gestión de usuarios')
-      .addTag('Roles', 'Gestión de roles')
-      .addTag('Permissions', 'Gestión de permisos')
-      .addTag('Tenants', 'Gestión de organizaciones')
-      .addTag('Audit', 'Logs de auditoría')
+      .addTag('Auth', 'Autenticacion y sesiones')
+      .addTag('Users', 'Gestion de usuarios')
+      .addTag('Roles', 'Gestion de roles')
+      .addTag('Permissions', 'Gestion de permisos')
+      .addTag('Audit', 'Logs de auditoria')
       .addTag('Health', 'Estado del servicio')
       .build();
 

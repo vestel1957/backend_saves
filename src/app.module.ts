@@ -12,13 +12,12 @@ import { RolesModule } from './roles/roles.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { EmailModule } from './email/email.module';
 import { UploadsModule } from './uploads/uploads.module';
-import { TenantsModule } from './tenants/tenants.module';
 import { CommonModule } from './common/common.module';
 import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
 
 @Module({
   imports: [
-    // Servir archivos estáticos (uploads)
+    // Servir archivos estaticos (uploads)
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',
@@ -38,7 +37,6 @@ import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
     PermissionsModule,
     EmailModule,
     UploadsModule,
-    TenantsModule,
   ],
   controllers: [AppController],
   providers: [AppService, SessionCleanupTask],
