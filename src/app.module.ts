@@ -13,6 +13,9 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { EmailModule } from './email/email.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { CommonModule } from './common/common.module';
+import { SettingsModule } from './settings/settings.module';
+import { DashboardModule } from './dashboard/dashboard.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
 
 @Module({
@@ -37,6 +40,9 @@ import { SessionCleanupTask } from './common/tasks/session-cleanup.task';
     PermissionsModule,
     EmailModule,
     UploadsModule,
+    SettingsModule,
+    DashboardModule,
+    NotificationsModule,
   ],
   controllers: [AppController],
   providers: [AppService, SessionCleanupTask],

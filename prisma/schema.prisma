@@ -189,6 +189,8 @@ model users {
   is_active            Boolean                @default(true)
   is_verified          Boolean                @default(false)
   is_super_admin       Boolean                @default(false)
+  is_2fa_enabled       Boolean                @default(false)
+  totp_secret          String?
   last_login_at        DateTime?              @db.Timestamptz(6)
   created_at           DateTime               @default(now()) @db.Timestamptz(6)
   updated_at           DateTime               @default(now()) @db.Timestamptz(6)
@@ -204,6 +206,7 @@ model users {
   area                 areas?                 @relation(fields: [area_id], references: [id], onUpdate: NoAction)
   user_permissions     user_permissions[]     @relation("user_permissions")
   permissions_granted  user_permissions[]     @relation("permission_granted_by")
+  notifications        notifications[]
 
   @@index([is_active], map: "idx_users_active")
   @@index([email], map: "idx_users_email")
@@ -241,4 +244,30 @@ model password_reset_codes {
   @@index([email], map: "idx_reset_email")
   @@index([email, code], map: "idx_reset_code")
   @@index([expires_at], map: "idx_reset_expires")
+}
+
+model settings {
+  key        String   @id @db.VarChar(100)
+  value      String
+  group      String   @default("general") @db.VarChar(50)
+  type       String   @default("string") @db.VarChar(20)
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([group], map: "idx_settings_group")
+}
+
+model notifications {
+  id         String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String    @db.Uuid
+  title      String    @db.VarChar(200)
+  message    String    @db.VarChar(500)
+  type       String    @default("info") @db.VarChar(20)
+  link       String?
+  read_at    DateTime? @db.Timestamptz(6)
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  user       users     @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([user_id, read_at], map: "idx_notifications_user_read")
+  @@index([user_id, created_at(sort: Desc)], map: "idx_notifications_user_created")
 }

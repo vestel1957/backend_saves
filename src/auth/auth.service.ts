@@ -4,6 +4,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
 import { randomBytes, createHash } from 'crypto';
 import { EmailService } from '../email/email.service';
+import { generateSecret, generateURI, verify as otpVerify } from 'otplib';
+import * as QRCode from 'qrcode';
 
 @Injectable()
 export class AuthService {
@@ -24,6 +26,16 @@ export class AuthService {
   }) {
     const user = await this.prisma.users.findUnique({
       where: { email: data.email },
+      select: {
+        id: true,
+        email: true,
+        password_hash: true,
+        is_active: true,
+        is_super_admin: true,
+        is_2fa_enabled: true,
+        totp_secret: true,
+        deleted_at: true,
+      },
     });
 
     if (!user || !user.is_active || user.deleted_at) {
@@ -79,6 +91,20 @@ export class AuthService {
       user_agent: data.user_agent,
       success: true,
     });
+
+    // Si tiene 2FA activado, devolver token temporal
+    if (user.is_2fa_enabled && user.totp_secret) {
+      const temp_token = this.jwtService.sign(
+        { sub: user.id, requires_2fa: true, ip_address: data.ip_address, user_agent: data.user_agent },
+        { expiresIn: '5m' },
+      );
+
+      this.logger.log(`Login requiere 2FA: ${data.email}`);
+      return {
+        requires_2fa: true,
+        temp_token,
+      };
+    }
 
     const tokens = await this.generateTokens(user.id, user.is_super_admin);
 
@@ -401,6 +427,133 @@ export class AuthService {
       is_super_admin: user.is_super_admin,
       roles,
       permissions,
+    };
+  }
+
+  // ─── 2FA SETUP ──────────────────────────────────────────
+  async setup2fa(user_id: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { id: user_id },
+      select: { email: true, is_2fa_enabled: true, totp_secret: true },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+
+    if (user.is_2fa_enabled) {
+      throw new ConflictException('2FA ya esta activado. Desactivalo primero para reconfigurar.');
+    }
+
+    const secret = generateSecret();
+    const appName = process.env.SMTP_FROM_NAME || 'Dashboard';
+    const otpauthUrl = generateURI({ issuer: appName, label: user.email, secret });
+    const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
+
+    // Guardar secret temporalmente (no activado aun)
+    await this.prisma.users.update({
+      where: { id: user_id },
+      data: { totp_secret: secret },
+    });
+
+    return {
+      secret,
+      qr_code: qrCodeDataUrl,
+      message: 'Escanea el QR con Google Authenticator y verifica con el codigo',
+    };
+  }
+
+  // ─── 2FA VERIFY & ACTIVATE ─────────────────────────────
+  async verify2fa(user_id: string, code: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { id: user_id },
+      select: { totp_secret: true, is_2fa_enabled: true },
+    });
+
+    if (!user || !user.totp_secret) {
+      throw new UnauthorizedException('Primero configura 2FA con /auth/2fa/setup');
+    }
+
+    const { valid: isValid } = await otpVerify({ token: code, secret: user.totp_secret });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Codigo 2FA invalido');
+    }
+
+    await this.prisma.users.update({
+      where: { id: user_id },
+      data: { is_2fa_enabled: true },
+    });
+
+    return { message: '2FA activado exitosamente' };
+  }
+
+  // ─── 2FA DISABLE ────────────────────────────────────────
+  async disable2fa(user_id: string, code: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { id: user_id },
+      select: { totp_secret: true, is_2fa_enabled: true },
+    });
+
+    if (!user || !user.is_2fa_enabled || !user.totp_secret) {
+      throw new UnauthorizedException('2FA no esta activado');
+    }
+
+    const { valid: isValid } = await otpVerify({ token: code, secret: user.totp_secret });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Codigo 2FA invalido');
+    }
+
+    await this.prisma.users.update({
+      where: { id: user_id },
+      data: { is_2fa_enabled: false, totp_secret: null },
+    });
+
+    return { message: '2FA desactivado exitosamente' };
+  }
+
+  // ─── 2FA LOGIN VERIFY ──────────────────────────────────
+  async verifyLogin2fa(temp_token: string, code: string) {
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(temp_token);
+    } catch {
+      throw new UnauthorizedException('Token temporal invalido o expirado');
+    }
+
+    if (!payload.requires_2fa) {
+      throw new UnauthorizedException('Token no es de tipo 2FA');
+    }
+
+    const user = await this.prisma.users.findUnique({
+      where: { id: payload.sub },
+      select: { id: true, totp_secret: true, is_super_admin: true },
+    });
+
+    if (!user || !user.totp_secret) {
+      throw new UnauthorizedException('Usuario no encontrado');
+    }
+
+    const { valid: isValid } = await otpVerify({ token: code, secret: user.totp_secret });
+
+    if (!isValid) {
+      throw new UnauthorizedException('Codigo 2FA invalido');
+    }
+
+    // Generar tokens reales
+    const tokens = await this.generateTokens(user.id, user.is_super_admin);
+
+    await this.createSession({
+      user_id: user.id,
+      refresh_token: tokens.refresh_token,
+      ip_address: payload.ip_address,
+      user_agent: payload.user_agent,
+    });
+
+    return {
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
     };
   }
 

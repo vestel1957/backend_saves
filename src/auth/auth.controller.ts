@@ -4,7 +4,7 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { JwtGuard } from './guards/jwt.guard';
 import { CurrentUser } from './decorators/user-current.decorator';
-import { LoginDto, RefreshTokenDto, ForgotPasswordDto, VerifyCodeDto, ResetPasswordDto } from './dto';
+import { LoginDto, RefreshTokenDto, ForgotPasswordDto, VerifyCodeDto, ResetPasswordDto, Verify2faDto, Login2faDto } from './dto';
 import type { Request } from 'express';
 
 @ApiTags('Auth')
@@ -80,6 +80,44 @@ export class AuthController {
         ...profile,
         avatar_url: this.toAbsoluteUrl(profile.avatar_url, req),
       }));
+  }
+
+  // ── 2FA ─────────────────────────────────────────────
+
+  @UseGuards(JwtGuard)
+  @Post('2fa/setup')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Generar secret y QR para configurar 2FA' })
+  @ApiResponse({ status: 200, description: 'QR code y secret generados' })
+  setup2fa(@CurrentUser('id') userId: string) {
+    return this.authService.setup2fa(userId);
+  }
+
+  @UseGuards(JwtGuard)
+  @Post('2fa/verify')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Verificar codigo y activar 2FA' })
+  @ApiResponse({ status: 200, description: '2FA activado' })
+  verify2fa(@CurrentUser('id') userId: string, @Body() body: Verify2faDto) {
+    return this.authService.verify2fa(userId, body.code);
+  }
+
+  @UseGuards(JwtGuard)
+  @Post('2fa/disable')
+  @ApiBearerAuth('access-token')
+  @ApiOperation({ summary: 'Desactivar 2FA (requiere codigo actual)' })
+  @ApiResponse({ status: 200, description: '2FA desactivado' })
+  disable2fa(@CurrentUser('id') userId: string, @Body() body: Verify2faDto) {
+    return this.authService.disable2fa(userId, body.code);
+  }
+
+  @Post('2fa/login')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
+  @ApiOperation({ summary: 'Completar login con codigo 2FA' })
+  @ApiResponse({ status: 200, description: 'Login completado con tokens' })
+  login2fa(@Body() body: Login2faDto) {
+    return this.authService.verifyLogin2fa(body.temp_token, body.code);
   }
 
   @Post('forgot-password')

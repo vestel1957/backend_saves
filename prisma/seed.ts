@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const BASE_PERMISSIONS = [
+  // Configuracion
   { module: 'configuracion', submodule: 'usuarios', action: 'ver' },
   { module: 'configuracion', submodule: 'usuarios', action: 'crear' },
   { module: 'configuracion', submodule: 'usuarios', action: 'editar' },
@@ -10,7 +11,24 @@ const BASE_PERMISSIONS = [
   { module: 'configuracion', submodule: 'roles', action: 'crear' },
   { module: 'configuracion', submodule: 'roles', action: 'editar' },
   { module: 'configuracion', submodule: 'roles', action: 'eliminar' },
+  // Sistema
   { module: 'sistema', submodule: 'auditoria', action: 'ver' },
+  { module: 'sistema', submodule: 'configuracion', action: 'ver' },
+  { module: 'sistema', submodule: 'configuracion', action: 'editar' },
+  { module: 'sistema', submodule: 'notificaciones', action: 'crear' },
+];
+
+const DEFAULT_SETTINGS = [
+  { key: 'company_name', value: process.env.COMPANY_NAME || 'Mi Empresa', group: 'general', type: 'string' },
+  { key: 'company_logo', value: '', group: 'general', type: 'string' },
+  { key: 'timezone', value: 'America/Bogota', group: 'general', type: 'string' },
+  { key: 'currency', value: 'COP', group: 'general', type: 'string' },
+  { key: 'date_format', value: 'DD/MM/YYYY', group: 'general', type: 'string' },
+  { key: 'session_timeout_minutes', value: '30', group: 'security', type: 'number' },
+  { key: 'require_2fa', value: 'false', group: 'security', type: 'boolean' },
+  { key: 'max_login_attempts', value: '5', group: 'security', type: 'number' },
+  { key: 'primary_color', value: '#1a1a2e', group: 'appearance', type: 'string' },
+  { key: 'accent_color', value: '#e94560', group: 'appearance', type: 'string' },
 ];
 
 async function main() {
@@ -93,7 +111,6 @@ async function main() {
         },
       });
 
-      // 5. Asignar rol al usuario
       await prisma.user_roles.create({
         data: {
           user_id: adminUser.id,
@@ -102,6 +119,16 @@ async function main() {
         },
       });
     }
+
+    // 5. Crear settings por defecto
+    for (const s of DEFAULT_SETTINGS) {
+      await prisma.settings.upsert({
+        where: { key: s.key },
+        update: {},
+        create: s,
+      });
+    }
+    console.log(`Settings: ${DEFAULT_SETTINGS.length} creados/verificados`);
 
     console.log(`\nSeed completado exitosamente!`);
     console.log(`\n  Email:    ${adminEmail}`);
