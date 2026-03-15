@@ -44,6 +44,13 @@ async function bootstrap() {
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : [];
 
+  // IPs permitidas con cualquier puerto (ej: "190.14.233.186,10.0.0.1")
+  const allowedIpPatterns = (process.env.ALLOWED_IPS || '')
+    .split(',')
+    .map((ip) => ip.trim())
+    .filter(Boolean)
+    .map((ip) => new RegExp(`^https?:\\/\\/${ip.replace(/\./g, '\\.')}(:\\d+)?$`));
+
   const prisma = app.get(PrismaService);
   let cachedTenantDomains: string[] = [];
   let domainsCacheTime = 0;
@@ -75,9 +82,9 @@ async function bootstrap() {
       }
 
       const isAllowedByEnv = corsOrigins.includes(origin);
-      const isAllowedIpAnyPort = /^http:\/\/190\.14\.233\.186:\d+$/.test(origin);
+      const isAllowedByIp = allowedIpPatterns.some((re) => re.test(origin));
 
-      if (isAllowedByEnv || isAllowedIpAnyPort) {
+      if (isAllowedByEnv || isAllowedByIp) {
         return callback(null, true);
       }
 

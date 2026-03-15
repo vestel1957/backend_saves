@@ -116,6 +116,37 @@ export class EmailService implements OnModuleInit {
     }
   }
 
+  async sendAdminPasswordReset(email: string, name?: string) {
+    const content = `
+      <p style="margin: 0 0 8px; font-size: 16px; color: #374151;">Hola${name ? ` <strong>${name}</strong>` : ''},</p>
+      <p style="margin: 0 0 24px; font-size: 14px; color: #6b7280; line-height: 1.6;">
+        Te informamos que un administrador ha restablecido tu contraseña en <strong>${this.appName}</strong>.
+      </p>
+      <div style="background: #fef2f2; border-left: 4px solid #e94560; padding: 12px 16px; border-radius: 0 8px 8px 0; margin: 0 0 16px;">
+        <p style="margin: 0; font-size: 13px; color: #991b1b;">
+          <strong>Importante:</strong> Si no esperabas este cambio, contacta al administrador de tu organizacion inmediatamente.
+        </p>
+      </div>
+      <p style="margin: 0; font-size: 13px; color: #9ca3af;">Este es un correo informativo generado automaticamente.</p>
+    `;
+
+    const mailOptions = {
+      from: this.fromAddress,
+      to: email,
+      subject: `${this.appName} - Tu contraseña ha sido restablecida por un administrador`,
+      html: this.baseLayout(content),
+    };
+
+    try {
+      const info = await this.transporter.sendMail(mailOptions);
+      this.logger.log(`Email de notificación admin reset enviado: ${info.messageId}`);
+      return info;
+    } catch (error) {
+      this.logger.error('Error enviando email de notificación admin reset', error);
+      throw error;
+    }
+  }
+
   async sendWelcomeCredentials(email: string, password: string, name?: string) {
     const content = `
       <p style="margin: 0 0 8px; font-size: 16px; color: #374151;">Hola${name ? ` <strong>${name}</strong>` : ''},</p>

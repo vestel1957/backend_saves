@@ -7,6 +7,35 @@ export class RolesService {
 
   constructor(private prisma: PrismaService) {}
 
+  /**
+   * Detecta ciclos en la jerarquia de roles.
+   * Recorre la cadena de parent_role_id para verificar que asignar
+   * parent_role_id a role_id no cree una referencia circular.
+   */
+  private async detectCycle(role_id: string, parent_role_id: string, tenant_id: string): Promise<boolean> {
+    const visited = new Set<string>();
+    let current: string | null = parent_role_id;
+
+    while (current) {
+      if (current === role_id) {
+        return true; // Ciclo detectado
+      }
+      if (visited.has(current)) {
+        return false; // Ya visitado, no hay ciclo con role_id
+      }
+      visited.add(current);
+
+      const parent = await this.prisma.roles.findFirst({
+        where: { id: current, tenant_id },
+        select: { parent_role_id: true },
+      });
+
+      current = parent?.parent_role_id ?? null;
+    }
+
+    return false;
+  }
+
   // ─── LISTAR ROLES ──────────────────────────────────────
   async findAll(tenant_id: string, query: { is_active?: boolean }) {
     const where: any = { tenant_id };
@@ -110,7 +139,7 @@ export class RolesService {
       }
     }
 
-    // Crear rol y asignar permisos en transacción
+    // Crear rol y asignar permisos en transaccion
     const role = await this.prisma.$transaction(async (tx) => {
       const newRole = await tx.roles.create({
         data: {
@@ -173,6 +202,28 @@ export class RolesService {
 
     if (role.is_system) {
       throw new ForbiddenException('No se puede modificar un rol del sistema');
+    }
+
+    // Si cambia el padre, verificar que no cree un ciclo
+    if (data.parent_role_id) {
+      if (data.parent_role_id === id) {
+        throw new ConflictException('Un rol no puede ser su propio padre');
+      }
+
+      const parent = await this.prisma.roles.findFirst({
+        where: { id: data.parent_role_id, tenant_id },
+      });
+
+      if (!parent) {
+        throw new NotFoundException('Rol padre no encontrado en este tenant');
+      }
+
+      const hasCycle = await this.detectCycle(id, data.parent_role_id, tenant_id);
+      if (hasCycle) {
+        throw new ConflictException(
+          'No se puede asignar este rol padre porque crearia una referencia circular en la jerarquia',
+        );
+      }
     }
 
     // Si cambia el nombre, verificar que no exista otro con ese nombre

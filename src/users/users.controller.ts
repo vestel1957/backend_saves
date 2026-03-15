@@ -276,12 +276,13 @@ export class UsersController {
       throw new ForbiddenException('Solo el super admin puede resetear contraseñas directamente');
     }
 
-    const result = await this.usersService.changePassword(id, tenantId, body, userId);
+    const result = await this.usersService.adminResetPassword(id, tenantId, body, userId);
 
     this.auditService.log({
       context: this.auditCtx(userId, tenantId, req),
       module: 'configuracion', submodule: 'usuarios', action: 'admin_reset_password',
       resource_id: id,
+      new_data: { reset_by: userId, target_user: id },
     });
 
     return result;

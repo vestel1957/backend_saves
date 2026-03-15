@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
@@ -32,11 +32,11 @@ export class UsersService {
     search?: string;
     is_active?: boolean;
   }) {
-    const page = query.page || 1;
-    const limit = query.limit || 10;
+    const page = Math.max(1, query.page || 1);
+    const limit = Math.min(100, Math.max(1, query.limit || 10));
     const skip = (page - 1) * limit;
 
-    const where: any = { tenant_id };
+    const where: any = { tenant_id, deleted_at: null };
 
     if (query.is_active !== undefined) {
       where.is_active = query.is_active;
@@ -113,7 +113,7 @@ export class UsersService {
   // ─── OBTENER UN USUARIO ────────────────────────────────
   async findOne(id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
       select: {
         id: true,
         email: true,
@@ -216,6 +216,24 @@ export class UsersService {
     signature_url?: string;
     document_urls?: string[];
   }, assigned_by: string) {
+    // Verificar cuota de usuarios del tenant
+    const tenant = await this.prisma.tenants.findUnique({
+      where: { id: tenant_id },
+      select: { max_users: true, name: true },
+    });
+
+    if (tenant?.max_users) {
+      const currentUserCount = await this.prisma.users.count({
+        where: { tenant_id, deleted_at: null },
+      });
+
+      if (currentUserCount >= tenant.max_users) {
+        throw new ForbiddenException(
+          `Se ha alcanzado el límite de usuarios (${tenant.max_users}) para este tenant. Contacta al administrador para ampliar tu plan.`,
+        );
+      }
+    }
+
     const existing = await this.prisma.users.findFirst({
       where: { email: data.email },
     });
@@ -327,12 +345,12 @@ export class UsersService {
     phone?: string;
     phone_alt?: string;
     area_id?: string | null;
-    sede_id?: string | null;  // ✅ Se usa para user_sedes
+    sede_id?: string | null;  // Se usa para user_sedes
     is_active?: boolean;
     role_id?: string;
   }, updated_by?: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -420,19 +438,31 @@ export class UsersService {
     });
   }
 
-  // ─── ELIMINAR USUARIO ──────────────────────────────────
+  // ─── ELIMINAR USUARIO (SOFT DELETE) ────────────────────
   async remove(id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
       throw new NotFoundException('Usuario no encontrado');
     }
 
-    await this.prisma.users.delete({ where: { id } });
+    await this.prisma.$transaction(async (tx) => {
+      // Soft delete: marcar con fecha de eliminacion
+      await tx.users.update({
+        where: { id },
+        data: {
+          deleted_at: new Date(),
+          is_active: false,
+        },
+      });
 
-    this.logger.warn(`Usuario eliminado: ${id} (tenant: ${tenant_id})`);
+      // Invalidar todas las sesiones activas del usuario
+      await tx.user_sessions.deleteMany({ where: { user_id: id } });
+    });
+
+    this.logger.warn(`Usuario eliminado (soft): ${id} (tenant: ${tenant_id})`);
     return { message: 'Usuario eliminado exitosamente' };
   }
 
@@ -441,7 +471,7 @@ export class UsersService {
     new_password: string;
   }, changed_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -486,10 +516,31 @@ export class UsersService {
     return { message: 'Contraseña actualizada exitosamente' };
   }
 
+  // ─── RESET PASSWORD POR ADMIN ─────────────────────────
+  async adminResetPassword(id: string, tenant_id: string, data: {
+    new_password: string;
+  }, changed_by: string) {
+    const result = await this.changePassword(id, tenant_id, data, changed_by);
+
+    // Obtener datos del usuario para notificarle
+    const user = await this.prisma.users.findFirst({
+      where: { id, tenant_id },
+      select: { email: true, first_name: true },
+    });
+
+    if (user) {
+      this.emailService
+        .sendAdminPasswordReset(user.email, user.first_name ?? undefined)
+        .catch((err) => this.logger.error('Error enviando notificación de reset por admin', err));
+    }
+
+    return result;
+  }
+
   // ─── DESACTIVAR / ACTIVAR USUARIO ─────────────────────
   async toggleStatus(id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -511,7 +562,7 @@ export class UsersService {
   // ─── ROLES DEL USUARIO ─────────────────────────────────
   async getUserRoles(id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
       select: {
         user_roles: {
           select: {
@@ -540,7 +591,7 @@ export class UsersService {
     expires_at?: string;
   }, assigned_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -575,7 +626,7 @@ export class UsersService {
   // ─── QUITAR ROL ────────────────────────────────────────
   async removeRole(user_id: string, role_id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id: user_id, tenant_id },
+      where: { id: user_id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -594,7 +645,7 @@ export class UsersService {
   // ─── PERMISOS DEL USUARIO (COMBINADOS) ─────────────────
   async getUserPermissions(id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -652,7 +703,7 @@ export class UsersService {
     permission_ids: string[];
   }, granted_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -685,7 +736,7 @@ export class UsersService {
   // ─── QUITAR PERMISO EXTRA ──────────────────────────────
   async removeExtraPermission(user_id: string, permission_id: string, tenant_id: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id: user_id, tenant_id },
+      where: { id: user_id, tenant_id, deleted_at: null },
     });
 
     if (!user) {
@@ -706,7 +757,7 @@ export class UsersService {
     permission_ids: string[];
   }, granted_by: string) {
     const user = await this.prisma.users.findFirst({
-      where: { id, tenant_id },
+      where: { id, tenant_id, deleted_at: null },
     });
 
     if (!user) {

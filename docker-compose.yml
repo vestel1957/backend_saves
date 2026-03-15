@@ -33,6 +33,7 @@ services:
       SMTP_PASS: ${SMTP_PASS:-password}
       SMTP_FROM_NAME: ${SMTP_FROM_NAME:-Vestel}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+      ALLOWED_IPS: ${ALLOWED_IPS:-}
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
 

@@ -25,7 +25,7 @@ export class PermissionGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    // Si no hay usuario (no pasó el JwtGuard), bloquear
+    // Si no hay usuario (no paso el JwtGuard), bloquear
     if (!user) {
       throw new ForbiddenException('No autenticado');
     }
@@ -35,23 +35,53 @@ export class PermissionGuard implements CanActivate {
       return true;
     }
 
-    // Verificar el permiso usando la función de la BD
-    const result = await this.prisma.$queryRaw<{ has_permission: boolean }[]>`
-      SELECT tenant_user_has_permission(
-        ${user.id}::uuid,
-        ${user.tenant_id}::uuid,
-        ${requiredPermission.module}::varchar,
-        ${requiredPermission.submodule}::varchar,
-        ${requiredPermission.action}::varchar
-      ) as has_permission
-    `;
+    // 1. Verificar permisos a traves de roles del usuario
+    const rolePermission = await this.prisma.role_permissions.findFirst({
+      where: {
+        permission: {
+          tenant_id: user.tenant_id,
+          module: requiredPermission.module,
+          submodule: requiredPermission.submodule,
+          action: requiredPermission.action,
+        },
+        role: {
+          user_roles: {
+            some: {
+              user_id: user.id,
+              OR: [
+                { expires_at: null },
+                { expires_at: { gt: new Date() } },
+              ],
+            },
+          },
+          is_active: true,
+        },
+      },
+    });
 
-    if (!result[0]?.has_permission) {
-      throw new ForbiddenException(
-        `No tienes permiso: ${requiredPermission.module}.${requiredPermission.submodule}.${requiredPermission.action}`,
-      );
+    if (rolePermission) {
+      return true;
     }
 
-    return true;
+    // 2. Verificar permisos directos del usuario
+    const directPermission = await this.prisma.user_permissions.findFirst({
+      where: {
+        user_id: user.id,
+        permission: {
+          tenant_id: user.tenant_id,
+          module: requiredPermission.module,
+          submodule: requiredPermission.submodule,
+          action: requiredPermission.action,
+        },
+      },
+    });
+
+    if (directPermission) {
+      return true;
+    }
+
+    throw new ForbiddenException(
+      `No tienes permiso: ${requiredPermission.module}.${requiredPermission.submodule}.${requiredPermission.action}`,
+    );
   }
 }

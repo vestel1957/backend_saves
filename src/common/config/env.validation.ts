@@ -5,6 +5,11 @@ export function validateEnv() {
     'Email (SMTP)': ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS'],
   };
 
+  // Variables opcionales con advertencia
+  const recommended: Record<string, string[]> = {
+    'CORS': ['ALLOWED_IPS'],
+  };
+
   const missing: string[] = [];
 
   for (const [group, vars] of Object.entries(required)) {
@@ -19,6 +24,22 @@ export function validateEnv() {
     throw new Error(
       `\nMissing required environment variables:\n${missing.join('\n')}\n\n` +
       'Set them in your .env file or environment before starting the application.\n',
+    );
+  }
+
+  // Advertencias para variables recomendadas
+  const warnings: string[] = [];
+  for (const [group, vars] of Object.entries(recommended)) {
+    for (const v of vars) {
+      if (!process.env[v]?.trim()) {
+        warnings.push(`  - ${v} (${group})`);
+      }
+    }
+  }
+
+  if (warnings.length > 0) {
+    console.warn(
+      `\n[WARNING] Recommended environment variables not set:\n${warnings.join('\n')}\n`,
     );
   }
 }
