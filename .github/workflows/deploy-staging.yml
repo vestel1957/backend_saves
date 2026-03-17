@@ -45,7 +45,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script: |
             set -e
-            cd ${{ secrets.DEPLOY_PATH || '/srv/app/staging' }}
+            cd ${{ secrets.DEPLOY_PATH || '/srv/crm/staging' }}
             docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_READ_TOKEN }}
             docker compose pull backend
             docker compose up -d --force-recreate backend
