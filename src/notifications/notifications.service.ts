@@ -1,22 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { Subject } from 'rxjs';
-
-export interface NotificationEvent {
-  user_id: string;
-  data: any;
-}
+import { NotificationsGateway } from './notifications.gateway';
 
 @Injectable()
 export class NotificationsService {
-  private readonly events$ = new Subject<NotificationEvent>();
-
-  constructor(private prisma: PrismaService) {}
-
-  // Observable for SSE connections
-  getEventStream() {
-    return this.events$.asObservable();
-  }
+  constructor(
+    private prisma: PrismaService,
+    private gateway: NotificationsGateway,
+  ) {}
 
   async create(data: {
     user_id: string;
@@ -35,11 +26,7 @@ export class NotificationsService {
       },
     });
 
-    // Emit to SSE listeners
-    this.events$.next({
-      user_id: data.user_id,
-      data: notification,
-    });
+    this.gateway.sendToUser(data.user_id, 'notification', notification);
 
     return notification;
   }
@@ -76,7 +63,7 @@ export class NotificationsService {
     });
 
     if (!notification) {
-      throw new NotFoundException('Notificacion no encontrada');
+      throw new NotFoundException('Notification not found');
     }
 
     return this.prisma.notifications.update({
@@ -91,7 +78,7 @@ export class NotificationsService {
       data: { read_at: new Date() },
     });
 
-    return { message: `${result.count} notificaciones marcadas como leidas` };
+    return { message: `${result.count} notifications marked as read` };
   }
 
   async remove(id: string, user_id: string) {
@@ -100,10 +87,10 @@ export class NotificationsService {
     });
 
     if (!notification) {
-      throw new NotFoundException('Notificacion no encontrada');
+      throw new NotFoundException('Notification not found');
     }
 
     await this.prisma.notifications.delete({ where: { id } });
-    return { message: 'Notificacion eliminada' };
+    return { message: 'Notification deleted' };
   }
 }

@@ -1,12 +1,19 @@
 import { Module } from '@nestjs/common';
+import { JwtModule } from '@nestjs/jwt';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { NotificationsGateway } from './notifications.gateway';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [
+    AuthModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET,
+    }),
+  ],
   controllers: [NotificationsController],
-  providers: [NotificationsService],
+  providers: [NotificationsService, NotificationsGateway],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}

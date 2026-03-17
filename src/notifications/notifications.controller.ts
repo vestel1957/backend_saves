@@ -1,6 +1,5 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Sse, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, ParseUUIDPipe } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
-import { Observable, filter, map } from 'rxjs';
 import { NotificationsService } from './notifications.service';
 import { JwtGuard } from '../auth/guards/jwt.guard';
 import { PermissionGuard } from '../auth/guards/permission.guard';
@@ -16,11 +15,11 @@ export class NotificationsController {
   constructor(private notificationsService: NotificationsService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Listar notificaciones del usuario autenticado' })
+  @ApiOperation({ summary: 'List notifications for authenticated user' })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'unread_only', required: false, type: Boolean })
-  @ApiResponse({ status: 200, description: 'Lista paginada de notificaciones' })
+  @ApiResponse({ status: 200, description: 'Paginated notification list' })
   findAll(
     @CurrentUser('id') userId: string,
     @Query() query: { page?: string; limit?: string; unread_only?: string },
@@ -32,27 +31,18 @@ export class NotificationsController {
     });
   }
 
-  @Sse('stream')
-  @ApiOperation({ summary: 'Stream de notificaciones en tiempo real (SSE)' })
-  stream(@CurrentUser('id') userId: string): Observable<MessageEvent> {
-    return this.notificationsService.getEventStream().pipe(
-      filter((event) => event.user_id === userId),
-      map((event) => ({ data: event.data } as MessageEvent)),
-    );
-  }
-
   @UseGuards(PermissionGuard)
   @RequirePermission('sistema', 'notificaciones', 'crear')
   @Post()
-  @ApiOperation({ summary: 'Crear notificacion para un usuario (admin)' })
-  @ApiResponse({ status: 201, description: 'Notificacion creada y enviada' })
+  @ApiOperation({ summary: 'Create notification for a user (admin)' })
+  @ApiResponse({ status: 201, description: 'Notification created and sent' })
   create(@Body() body: CreateNotificationDto) {
     return this.notificationsService.create(body);
   }
 
   @Patch(':id/read')
-  @ApiOperation({ summary: 'Marcar notificacion como leida' })
-  @ApiResponse({ status: 200, description: 'Notificacion marcada como leida' })
+  @ApiOperation({ summary: 'Mark notification as read' })
+  @ApiResponse({ status: 200, description: 'Notification marked as read' })
   markAsRead(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') userId: string,
@@ -61,15 +51,15 @@ export class NotificationsController {
   }
 
   @Patch('read-all')
-  @ApiOperation({ summary: 'Marcar todas las notificaciones como leidas' })
-  @ApiResponse({ status: 200, description: 'Todas marcadas como leidas' })
+  @ApiOperation({ summary: 'Mark all notifications as read' })
+  @ApiResponse({ status: 200, description: 'All notifications marked as read' })
   markAllAsRead(@CurrentUser('id') userId: string) {
     return this.notificationsService.markAllAsRead(userId);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Eliminar una notificacion' })
-  @ApiResponse({ status: 200, description: 'Notificacion eliminada' })
+  @ApiOperation({ summary: 'Delete a notification' })
+  @ApiResponse({ status: 200, description: 'Notification deleted' })
   remove(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser('id') userId: string,
