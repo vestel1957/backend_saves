@@ -1,88 +1,114 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import {
-  UnauthorizedException,
-  ConflictException,
-  ForbiddenException,
-} from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmailService } from '../email/email.service';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 
-jest.mock('bcrypt');
+// Mock otplib
+jest.mock('otplib', () => ({
+  generateSecret: jest.fn(() => 'MOCK_TOTP_SECRET'),
+  generateURI: jest.fn(() => 'otpauth://totp/App:test@test.com?secret=MOCK_TOTP_SECRET'),
+  verify: jest.fn(),
+}));
+
+// Mock qrcode
+jest.mock('qrcode', () => ({
+  toDataURL: jest.fn(() => Promise.resolve('data:image/png;base64,MOCKQR')),
+}));
+
+// Mock bcrypt
+jest.mock('bcrypt', () => ({
+  compare: jest.fn(),
+  hash: jest.fn(() => Promise.resolve('$2b$12$newhashedpassword')),
+}));
+
+const { verify: otpVerify } = require('otplib');
 
 describe('AuthService', () => {
   let service: AuthService;
-  let prisma: PrismaService;
-  let jwtService: JwtService;
-  let emailService: EmailService;
+  let prisma: any;
+  let jwtService: any;
+  let emailService: any;
 
-  const mockPrisma = {
-    users: {
-      findFirst: jest.fn(),
-      findUnique: jest.fn(),
-      create: jest.fn(),
-      update: jest.fn(),
-    },
-    tenants: {
-      findUnique: jest.fn(),
-    },
-    user_sessions: {
-      findUnique: jest.fn(),
-      findMany: jest.fn(),
-      create: jest.fn(),
-      delete: jest.fn(),
-      deleteMany: jest.fn(),
-    },
-    login_attempts: {
-      create: jest.fn(),
-    },
-    password_reset_codes: {
-      findFirst: jest.fn(),
-      create: jest.fn(),
-      delete: jest.fn(),
-      deleteMany: jest.fn(),
-      update: jest.fn(),
-    },
-    password_history: {
-      create: jest.fn(),
-    },
-    permissions: {
-      findMany: jest.fn(),
-    },
-    $transaction: jest.fn(),
+  const mockUser = {
+    id: 'user-uuid-1',
+    email: 'test@example.com',
+    password_hash: '$2b$12$hashedpassword',
+    is_active: true,
+    is_super_admin: false,
+    is_2fa_enabled: false,
+    totp_secret: null,
+    deleted_at: null,
+    first_name: 'John',
   };
 
-  const mockJwtService = {
-    sign: jest.fn().mockReturnValue('mock-access-token'),
-  };
-
-  const mockEmailService = {
-    sendResetCode: jest.fn().mockResolvedValue(undefined),
+  const mockLoginData = {
+    email: 'test@example.com',
+    password: 'ValidPass123!',
+    ip_address: '127.0.0.1',
+    user_agent: 'jest-test',
   };
 
   beforeEach(async () => {
+    prisma = {
+      users: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+      },
+      login_attempts: {
+        count: jest.fn(),
+        create: jest.fn(),
+      },
+      user_sessions: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        create: jest.fn(),
+        delete: jest.fn(),
+        deleteMany: jest.fn(),
+      },
+      password_reset_codes: {
+        findFirst: jest.fn(),
+        create: jest.fn(),
+        delete: jest.fn(),
+        deleteMany: jest.fn(),
+        update: jest.fn(),
+      },
+      password_history: {
+        findMany: jest.fn(),
+        create: jest.fn(),
+      },
+      permissions: {
+        findMany: jest.fn(),
+      },
+      $transaction: jest.fn(),
+    };
+
+    jwtService = {
+      sign: jest.fn(() => 'mock-access-token'),
+      verify: jest.fn(),
+    };
+
+    emailService = {
+      sendResetCode: jest.fn(() => Promise.resolve()),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
-        { provide: PrismaService, useValue: mockPrisma },
-        { provide: JwtService, useValue: mockJwtService },
-        { provide: EmailService, useValue: mockEmailService },
+        { provide: PrismaService, useValue: prisma },
+        { provide: JwtService, useValue: jwtService },
+        { provide: EmailService, useValue: emailService },
       ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
-    prisma = module.get<PrismaService>(PrismaService);
-    jwtService = module.get<JwtService>(JwtService);
-    emailService = module.get<EmailService>(EmailService);
+  });
 
-    // Reset all mocks before each test
+  afterEach(() => {
     jest.clearAllMocks();
-    // Re-apply default return for jwtService.sign after clearAllMocks
-    mockJwtService.sign.mockReturnValue('mock-access-token');
-    mockEmailService.sendResetCode.mockResolvedValue(undefined);
   });
 
   it('should be defined', () => {
@@ -90,238 +116,129 @@ describe('AuthService', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════
-  // REGISTER
-  // ═══════════════════════════════════════════════════════════════
-  describe('register', () => {
-    const registerData = {
-      email: 'test@example.com',
-      username: 'testuser',
-      password: 'Password123!',
-      first_name: 'Test',
-      last_name: 'User',
-      tenant_id: 'tenant-1',
-    };
-
-    it('should register a user successfully', async () => {
-      mockPrisma.users.findFirst.mockResolvedValue(null);
-      mockPrisma.tenants.findUnique.mockResolvedValue({
-        id: 'tenant-1',
-        is_active: true,
-      });
-      (bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
-      const createdUser = {
-        id: 'user-1',
-        email: registerData.email,
-        username: registerData.username,
-        first_name: registerData.first_name,
-        last_name: registerData.last_name,
-        tenant_id: registerData.tenant_id,
-        is_active: true,
-        created_at: new Date(),
-      };
-      mockPrisma.users.create.mockResolvedValue(createdUser);
-
-      const result = await service.register(registerData);
-
-      expect(result).toEqual({
-        message: 'Usuario registrado exitosamente',
-        user: createdUser,
-      });
-      expect(mockPrisma.users.findFirst).toHaveBeenCalledWith({
-        where: {
-          OR: [
-            { email: registerData.email },
-            { username: registerData.username },
-          ],
-        },
-      });
-      expect(mockPrisma.tenants.findUnique).toHaveBeenCalledWith({
-        where: { id: registerData.tenant_id },
-      });
-      expect(bcrypt.hash).toHaveBeenCalledWith(registerData.password, 12);
-      expect(mockPrisma.users.create).toHaveBeenCalledWith({
-        data: {
-          email: registerData.email,
-          username: registerData.username,
-          password_hash: 'hashed-password',
-          first_name: registerData.first_name,
-          last_name: registerData.last_name,
-          tenant_id: registerData.tenant_id,
-        },
-        select: {
-          id: true,
-          email: true,
-          username: true,
-          first_name: true,
-          last_name: true,
-          tenant_id: true,
-          is_active: true,
-          created_at: true,
-        },
-      });
-    });
-
-    it('should throw ConflictException when email already exists', async () => {
-      mockPrisma.users.findFirst.mockResolvedValue({
-        email: registerData.email,
-        username: 'otheruser',
-      });
-
-      await expect(service.register(registerData)).rejects.toThrow(
-        new ConflictException('El email ya está registrado'),
-      );
-      expect(mockPrisma.tenants.findUnique).not.toHaveBeenCalled();
-      expect(mockPrisma.users.create).not.toHaveBeenCalled();
-    });
-
-    it('should throw ConflictException when username already exists', async () => {
-      mockPrisma.users.findFirst.mockResolvedValue({
-        email: 'other@example.com',
-        username: registerData.username,
-      });
-
-      await expect(service.register(registerData)).rejects.toThrow(
-        new ConflictException('El username ya está en uso'),
-      );
-      expect(mockPrisma.tenants.findUnique).not.toHaveBeenCalled();
-      expect(mockPrisma.users.create).not.toHaveBeenCalled();
-    });
-
-    it('should throw ForbiddenException when tenant is inactive', async () => {
-      mockPrisma.users.findFirst.mockResolvedValue(null);
-      mockPrisma.tenants.findUnique.mockResolvedValue({
-        id: 'tenant-1',
-        is_active: false,
-      });
-
-      await expect(service.register(registerData)).rejects.toThrow(
-        new ForbiddenException('Tenant no encontrado o inactivo'),
-      );
-      expect(mockPrisma.users.create).not.toHaveBeenCalled();
-    });
-
-    it('should throw ForbiddenException when tenant is not found', async () => {
-      mockPrisma.users.findFirst.mockResolvedValue(null);
-      mockPrisma.tenants.findUnique.mockResolvedValue(null);
-
-      await expect(service.register(registerData)).rejects.toThrow(
-        new ForbiddenException('Tenant no encontrado o inactivo'),
-      );
-      expect(mockPrisma.users.create).not.toHaveBeenCalled();
-    });
-  });
-
-  // ═══════════════════════════════════════════════════════════════
   // LOGIN
   // ═══════════════════════════════════════════════════════════════
   describe('login', () => {
-    const loginData = {
-      email: 'test@example.com',
-      password: 'Password123!',
-      ip_address: '192.168.1.1',
-      user_agent: 'Mozilla/5.0',
-    };
-
-    const mockUser = {
-      id: 'user-1',
-      email: loginData.email,
-      username: 'testuser',
-      password_hash: 'hashed-password',
-      is_active: true,
-      is_super_admin: false,
-      tenant_id: 'tenant-1',
-      tenant: { id: 'tenant-1', name: 'Test Tenant' },
-    };
-
-    it('should login successfully and return tokens', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue(mockUser);
+    it('should return tokens on valid credentials', async () => {
+      prisma.users.findUnique.mockResolvedValue(mockUser);
+      prisma.login_attempts.count.mockResolvedValue(0);
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
-      mockPrisma.login_attempts.create.mockResolvedValue({});
-      mockPrisma.user_sessions.create.mockResolvedValue({});
-      mockPrisma.users.update.mockResolvedValue({});
+      prisma.login_attempts.create.mockResolvedValue({});
+      prisma.user_sessions.create.mockResolvedValue({});
+      prisma.users.update.mockResolvedValue({});
 
-      const result = await service.login(loginData);
+      const result = await service.login(mockLoginData);
 
       expect(result).toHaveProperty('access_token');
       expect(result).toHaveProperty('refresh_token');
-      expect(result.access_token).toBe('mock-access-token');
-      expect(typeof result.refresh_token).toBe('string');
-      expect(mockPrisma.users.findUnique).toHaveBeenCalledWith({
-        where: { email: loginData.email },
-        include: { tenant: true },
-      });
-      expect(bcrypt.compare).toHaveBeenCalledWith(
-        loginData.password,
-        mockUser.password_hash,
+      expect(prisma.users.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { email: mockLoginData.email } }),
       );
-      // Verify login attempt was recorded as successful
-      expect(mockPrisma.login_attempts.create).toHaveBeenCalledWith(
+      expect(prisma.user_sessions.create).toHaveBeenCalled();
+      expect(prisma.users.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            email: loginData.email,
-            success: true,
-          }),
+          where: { id: mockUser.id },
+          data: expect.objectContaining({ last_login_at: expect.any(Date) }),
         }),
       );
-      // Verify session was created
-      expect(mockPrisma.user_sessions.create).toHaveBeenCalled();
-      // Verify last_login_at was updated
-      expect(mockPrisma.users.update).toHaveBeenCalledWith({
-        where: { id: mockUser.id },
-        data: { last_login_at: expect.any(Date) },
-      });
     });
 
     it('should throw UnauthorizedException when user is not found', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue(null);
-      mockPrisma.login_attempts.create.mockResolvedValue({});
+      prisma.users.findUnique.mockResolvedValue(null);
+      prisma.login_attempts.create.mockResolvedValue({});
 
-      await expect(service.login(loginData)).rejects.toThrow(
-        new UnauthorizedException('Credenciales inválidas'),
-      );
-      expect(mockPrisma.login_attempts.create).toHaveBeenCalledWith(
+      await expect(service.login(mockLoginData)).rejects.toThrow(UnauthorizedException);
+      expect(prisma.login_attempts.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            success: false,
-            failure_reason: 'user_not_found',
-          }),
+          data: expect.objectContaining({ success: false, failure_reason: 'user_not_found' }),
         }),
       );
     });
 
-    it('should throw UnauthorizedException when password is wrong', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue(mockUser);
+    it('should throw UnauthorizedException when user is inactive', async () => {
+      prisma.users.findUnique.mockResolvedValue({ ...mockUser, is_active: false });
+      prisma.login_attempts.create.mockResolvedValue({});
+
+      await expect(service.login(mockLoginData)).rejects.toThrow(UnauthorizedException);
+      expect(prisma.login_attempts.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ failure_reason: 'account_disabled' }),
+        }),
+      );
+    });
+
+    it('should throw UnauthorizedException when user is soft-deleted', async () => {
+      prisma.users.findUnique.mockResolvedValue({ ...mockUser, deleted_at: new Date() });
+      prisma.login_attempts.create.mockResolvedValue({});
+
+      await expect(service.login(mockLoginData)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException on invalid password', async () => {
+      prisma.users.findUnique.mockResolvedValue(mockUser);
+      prisma.login_attempts.count.mockResolvedValue(0);
       (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-      mockPrisma.login_attempts.create.mockResolvedValue({});
+      prisma.login_attempts.create.mockResolvedValue({});
 
-      await expect(service.login(loginData)).rejects.toThrow(
-        new UnauthorizedException('Credenciales inválidas'),
-      );
-      expect(mockPrisma.login_attempts.create).toHaveBeenCalledWith(
+      await expect(service.login(mockLoginData)).rejects.toThrow(UnauthorizedException);
+      expect(prisma.login_attempts.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
-            success: false,
-            failure_reason: 'invalid_password',
-          }),
+          data: expect.objectContaining({ failure_reason: 'invalid_password' }),
         }),
       );
     });
 
-    it('should throw UnauthorizedException when account is inactive', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue({
-        ...mockUser,
-        is_active: false,
-      });
-      mockPrisma.login_attempts.create.mockResolvedValue({});
+    it('should throw ForbiddenException after 5 failed attempts', async () => {
+      prisma.users.findUnique.mockResolvedValue(mockUser);
+      prisma.login_attempts.count.mockResolvedValue(5);
+      prisma.login_attempts.create.mockResolvedValue({});
 
-      await expect(service.login(loginData)).rejects.toThrow(
-        new UnauthorizedException('Credenciales inválidas'),
+      await expect(service.login(mockLoginData)).rejects.toThrow(ForbiddenException);
+      expect(prisma.login_attempts.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ failure_reason: 'account_locked' }),
+        }),
       );
-      expect(mockPrisma.login_attempts.create).toHaveBeenCalledWith(
+    });
+
+    it('should return requires_2fa when 2FA is enabled', async () => {
+      const userWith2fa = { ...mockUser, is_2fa_enabled: true, totp_secret: 'SECRET' };
+      prisma.users.findUnique.mockResolvedValue(userWith2fa);
+      prisma.login_attempts.count.mockResolvedValue(0);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      prisma.login_attempts.create.mockResolvedValue({});
+
+      jwtService.sign.mockReturnValue('temp-2fa-token');
+
+      const result = await service.login(mockLoginData);
+
+      expect(result).toEqual({
+        requires_2fa: true,
+        temp_token: 'temp-2fa-token',
+      });
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        expect.objectContaining({ sub: mockUser.id, requires_2fa: true }),
+        { expiresIn: '5m' },
+      );
+      // Should NOT create a session yet
+      expect(prisma.user_sessions.create).not.toHaveBeenCalled();
+    });
+
+    it('should record successful login attempt', async () => {
+      prisma.users.findUnique.mockResolvedValue(mockUser);
+      prisma.login_attempts.count.mockResolvedValue(0);
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+      prisma.login_attempts.create.mockResolvedValue({});
+      prisma.user_sessions.create.mockResolvedValue({});
+      prisma.users.update.mockResolvedValue({});
+
+      await service.login(mockLoginData);
+
+      expect(prisma.login_attempts.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            success: false,
-            failure_reason: 'account_disabled',
+            email: mockLoginData.email,
+            success: true,
           }),
         }),
       );
@@ -333,78 +250,104 @@ describe('AuthService', () => {
   // ═══════════════════════════════════════════════════════════════
   describe('refreshTokens', () => {
     const refreshToken = 'valid-refresh-token';
-    const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
 
-    const mockSession = {
-      id: 'session-1',
-      token_hash: tokenHash,
-      user_id: 'user-1',
-      ip_address: '192.168.1.1',
-      user_agent: 'Mozilla/5.0',
-      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // future
-      user: {
-        id: 'user-1',
-        is_active: true,
-        is_super_admin: false,
-        tenant_id: 'tenant-1',
-      },
-    };
+    it('should rotate tokens on valid refresh token', async () => {
+      const mockSession = {
+        id: 'session-1',
+        expires_at: new Date(Date.now() + 86400000),
+        ip_address: '127.0.0.1',
+        user_agent: 'jest',
+        user: { id: 'user-uuid-1', is_active: true, is_super_admin: false, deleted_at: null },
+      };
 
-    it('should refresh tokens successfully', async () => {
-      mockPrisma.user_sessions.findUnique.mockResolvedValue(mockSession);
-      mockPrisma.user_sessions.delete.mockResolvedValue({});
-      mockPrisma.user_sessions.create.mockResolvedValue({});
+      prisma.$transaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          user_sessions: {
+            findUnique: jest.fn().mockResolvedValue(mockSession),
+            delete: jest.fn().mockResolvedValue({}),
+            create: jest.fn().mockResolvedValue({}),
+          },
+        };
+        return cb(tx);
+      });
 
       const result = await service.refreshTokens(refreshToken);
 
-      expect(result).toHaveProperty('access_token', 'mock-access-token');
+      expect(result).toHaveProperty('access_token');
       expect(result).toHaveProperty('refresh_token');
-      expect(typeof result.refresh_token).toBe('string');
-      // Old session should be deleted (token rotation)
-      expect(mockPrisma.user_sessions.delete).toHaveBeenCalledWith({
-        where: { id: mockSession.id },
-      });
-      // New session should be created
-      expect(mockPrisma.user_sessions.create).toHaveBeenCalled();
     });
 
-    it('should throw UnauthorizedException when token is expired', async () => {
+    it('should throw UnauthorizedException when session not found', async () => {
+      prisma.$transaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          user_sessions: {
+            findUnique: jest.fn().mockResolvedValue(null),
+          },
+        };
+        return cb(tx);
+      });
+
+      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw UnauthorizedException when session is expired and delete it', async () => {
       const expiredSession = {
-        ...mockSession,
-        expires_at: new Date(Date.now() - 1000), // past
+        id: 'session-1',
+        expires_at: new Date(Date.now() - 86400000),
+        user: { id: 'user-uuid-1', is_active: true, is_super_admin: false, deleted_at: null },
       };
-      mockPrisma.user_sessions.findUnique.mockResolvedValue(expiredSession);
-      mockPrisma.user_sessions.delete.mockResolvedValue({});
 
-      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(
-        new UnauthorizedException('Refresh token inválido o expirado'),
-      );
-      // Expired session should be deleted
-      expect(mockPrisma.user_sessions.delete).toHaveBeenCalledWith({
-        where: { id: expiredSession.id },
+      prisma.$transaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          user_sessions: {
+            findUnique: jest.fn().mockResolvedValue(expiredSession),
+            delete: jest.fn().mockResolvedValue({}),
+          },
+        };
+        return cb(tx);
       });
+
+      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException when session is not found', async () => {
-      mockPrisma.user_sessions.findUnique.mockResolvedValue(null);
-
-      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(
-        new UnauthorizedException('Refresh token inválido o expirado'),
-      );
-    });
-
-    it('should throw ForbiddenException when user is inactive', async () => {
-      const inactiveUserSession = {
-        ...mockSession,
-        user: { ...mockSession.user, is_active: false },
+    it('should throw ForbiddenException when user account is deactivated', async () => {
+      const sessionWithInactiveUser = {
+        id: 'session-1',
+        expires_at: new Date(Date.now() + 86400000),
+        user: { id: 'user-uuid-1', is_active: false, is_super_admin: false, deleted_at: null },
       };
-      mockPrisma.user_sessions.findUnique.mockResolvedValue(
-        inactiveUserSession,
-      );
 
-      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(
-        new ForbiddenException('Cuenta desactivada'),
-      );
+      prisma.$transaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          user_sessions: {
+            findUnique: jest.fn().mockResolvedValue(sessionWithInactiveUser),
+            delete: jest.fn().mockResolvedValue({}),
+          },
+        };
+        return cb(tx);
+      });
+
+      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(ForbiddenException);
+    });
+
+    it('should throw ForbiddenException when user is soft-deleted', async () => {
+      const sessionWithDeletedUser = {
+        id: 'session-1',
+        expires_at: new Date(Date.now() + 86400000),
+        user: { id: 'user-uuid-1', is_active: true, is_super_admin: false, deleted_at: new Date() },
+      };
+
+      prisma.$transaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          user_sessions: {
+            findUnique: jest.fn().mockResolvedValue(sessionWithDeletedUser),
+            delete: jest.fn().mockResolvedValue({}),
+          },
+        };
+        return cb(tx);
+      });
+
+      await expect(service.refreshTokens(refreshToken)).rejects.toThrow(ForbiddenException);
     });
   });
 
@@ -412,20 +355,27 @@ describe('AuthService', () => {
   // LOGOUT
   // ═══════════════════════════════════════════════════════════════
   describe('logout', () => {
-    it('should logout successfully', async () => {
+    it('should delete session and return success message', async () => {
       const refreshToken = 'some-refresh-token';
-      const userId = 'user-123';
-      const tokenHash = createHash('sha256')
-        .update(refreshToken)
-        .digest('hex');
-      mockPrisma.user_sessions.deleteMany.mockResolvedValue({ count: 1 });
+      const userId = 'user-uuid-1';
+      const tokenHash = createHash('sha256').update(refreshToken).digest('hex');
+
+      prisma.user_sessions.deleteMany.mockResolvedValue({ count: 1 });
 
       const result = await service.logout(refreshToken, userId);
 
-      expect(result).toEqual({ message: 'Sesión cerrada exitosamente' });
-      expect(mockPrisma.user_sessions.deleteMany).toHaveBeenCalledWith({
+      expect(result).toEqual({ message: 'Sesion cerrada exitosamente' });
+      expect(prisma.user_sessions.deleteMany).toHaveBeenCalledWith({
         where: { token_hash: tokenHash, user_id: userId },
       });
+    });
+
+    it('should throw UnauthorizedException when session not found', async () => {
+      prisma.user_sessions.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.logout('bad-token', 'user-uuid-1')).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 
@@ -433,17 +383,14 @@ describe('AuthService', () => {
   // LOGOUT ALL
   // ═══════════════════════════════════════════════════════════════
   describe('logoutAll', () => {
-    it('should logout all sessions successfully', async () => {
-      const userId = 'user-1';
-      mockPrisma.user_sessions.deleteMany.mockResolvedValue({ count: 3 });
+    it('should delete all sessions for a user', async () => {
+      prisma.user_sessions.deleteMany.mockResolvedValue({ count: 3 });
 
-      const result = await service.logoutAll(userId);
+      const result = await service.logoutAll('user-uuid-1');
 
-      expect(result).toEqual({
-        message: 'Todas las sesiones cerradas exitosamente',
-      });
-      expect(mockPrisma.user_sessions.deleteMany).toHaveBeenCalledWith({
-        where: { user_id: userId },
+      expect(result).toEqual({ message: 'Todas las sesiones cerradas exitosamente' });
+      expect(prisma.user_sessions.deleteMany).toHaveBeenCalledWith({
+        where: { user_id: 'user-uuid-1' },
       });
     });
   });
@@ -452,32 +399,31 @@ describe('AuthService', () => {
   // GET SESSIONS
   // ═══════════════════════════════════════════════════════════════
   describe('getSessions', () => {
-    it('should return active sessions for the user', async () => {
-      const userId = 'user-1';
-      const mockSessions = [
+    it('should return active sessions for a user', async () => {
+      const sessions = [
         {
-          id: 'session-1',
-          ip_address: '192.168.1.1',
+          id: 's1',
+          ip_address: '127.0.0.1',
           user_agent: 'Chrome',
           created_at: new Date(),
           expires_at: new Date(Date.now() + 86400000),
         },
         {
-          id: 'session-2',
+          id: 's2',
           ip_address: '10.0.0.1',
           user_agent: 'Firefox',
           created_at: new Date(),
           expires_at: new Date(Date.now() + 86400000),
         },
       ];
-      mockPrisma.user_sessions.findMany.mockResolvedValue(mockSessions);
+      prisma.user_sessions.findMany.mockResolvedValue(sessions);
 
-      const result = await service.getSessions(userId);
+      const result = await service.getSessions('user-uuid-1');
 
-      expect(result).toEqual(mockSessions);
-      expect(mockPrisma.user_sessions.findMany).toHaveBeenCalledWith({
+      expect(result).toEqual(sessions);
+      expect(prisma.user_sessions.findMany).toHaveBeenCalledWith({
         where: {
-          user_id: userId,
+          user_id: 'user-uuid-1',
           expires_at: { gt: expect.any(Date) },
         },
         select: {
@@ -496,78 +442,61 @@ describe('AuthService', () => {
   // FORGOT PASSWORD
   // ═══════════════════════════════════════════════════════════════
   describe('forgotPassword', () => {
-    const email = 'test@example.com';
+    const expectedMessage = 'Si el correo existe, recibiras un codigo de verificacion';
 
-    it('should generate a reset code and send email when user exists', async () => {
-      const mockUser = {
-        id: 'user-1',
-        email,
-        first_name: 'Test',
-        is_active: true,
-      };
-      mockPrisma.users.findUnique.mockResolvedValue(mockUser);
-      mockPrisma.password_reset_codes.deleteMany.mockResolvedValue({});
-      mockPrisma.password_reset_codes.create.mockResolvedValue({});
+    it('should return same message even if user does not exist (security)', async () => {
+      prisma.users.findUnique.mockResolvedValue(null);
 
-      const result = await service.forgotPassword(email);
+      const result = await service.forgotPassword('nonexistent@test.com');
 
-      expect(result).toEqual({
-        message: 'Si el correo existe, recibirás un código de verificación',
+      expect(result).toEqual({ message: expectedMessage });
+      expect(prisma.password_reset_codes.create).not.toHaveBeenCalled();
+      expect(emailService.sendResetCode).not.toHaveBeenCalled();
+    });
+
+    it('should create reset code and send email when user exists', async () => {
+      prisma.users.findUnique.mockResolvedValue(mockUser);
+      prisma.password_reset_codes.deleteMany.mockResolvedValue({});
+      prisma.password_reset_codes.create.mockResolvedValue({});
+
+      const result = await service.forgotPassword('test@example.com');
+
+      expect(result).toEqual({ message: expectedMessage });
+      expect(prisma.password_reset_codes.deleteMany).toHaveBeenCalledWith({
+        where: { email: 'test@example.com' },
       });
-      expect(mockPrisma.users.findUnique).toHaveBeenCalledWith({
-        where: { email },
-      });
-      // Should delete previous codes
-      expect(mockPrisma.password_reset_codes.deleteMany).toHaveBeenCalledWith({
-        where: { email },
-      });
-      // Should create a new code
-      expect(mockPrisma.password_reset_codes.create).toHaveBeenCalledWith({
+      expect(prisma.password_reset_codes.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           user_id: mockUser.id,
-          email,
+          email: 'test@example.com',
           code: expect.stringMatching(/^\d{6}$/),
           expires_at: expect.any(Date),
         }),
       });
-      // Should send the email
-      expect(mockEmailService.sendResetCode).toHaveBeenCalledWith(
-        email,
+      expect(emailService.sendResetCode).toHaveBeenCalledWith(
+        'test@example.com',
         expect.stringMatching(/^\d{6}$/),
-        'Test',
+        'John',
       );
     });
 
-    it('should return generic message when user is not found (no information leak)', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue(null);
+    it('should return same message for inactive user (security)', async () => {
+      prisma.users.findUnique.mockResolvedValue({ ...mockUser, is_active: false });
 
-      const result = await service.forgotPassword(email);
+      const result = await service.forgotPassword('test@example.com');
 
-      expect(result).toEqual({
-        message: 'Si el correo existe, recibirás un código de verificación',
-      });
-      // Should NOT attempt to create codes or send emails
-      expect(
-        mockPrisma.password_reset_codes.deleteMany,
-      ).not.toHaveBeenCalled();
-      expect(mockPrisma.password_reset_codes.create).not.toHaveBeenCalled();
-      expect(mockEmailService.sendResetCode).not.toHaveBeenCalled();
+      expect(result).toEqual({ message: expectedMessage });
+      expect(prisma.password_reset_codes.create).not.toHaveBeenCalled();
+      expect(emailService.sendResetCode).not.toHaveBeenCalled();
     });
 
-    it('should return generic message when user is inactive', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue({
-        id: 'user-1',
-        email,
-        is_active: false,
-      });
+    it('should return same message for soft-deleted user (security)', async () => {
+      prisma.users.findUnique.mockResolvedValue({ ...mockUser, deleted_at: new Date() });
 
-      const result = await service.forgotPassword(email);
+      const result = await service.forgotPassword('test@example.com');
 
-      expect(result).toEqual({
-        message: 'Si el correo existe, recibirás un código de verificación',
-      });
-      expect(mockPrisma.password_reset_codes.create).not.toHaveBeenCalled();
-      expect(mockEmailService.sendResetCode).not.toHaveBeenCalled();
+      expect(result).toEqual({ message: expectedMessage });
+      expect(prisma.password_reset_codes.create).not.toHaveBeenCalled();
     });
   });
 
@@ -575,84 +504,87 @@ describe('AuthService', () => {
   // VERIFY RESET CODE
   // ═══════════════════════════════════════════════════════════════
   describe('verifyResetCode', () => {
-    const email = 'test@example.com';
-    const code = '123456';
-
-    it('should verify the code successfully', async () => {
-      const mockResetCode = {
-        id: 'reset-1',
-        email,
-        code,
+    it('should verify a valid code successfully', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue({
+        id: 'rc-1',
+        code: '123456',
         attempts: 0,
-        is_verified: false,
-        expires_at: new Date(Date.now() + 5 * 60 * 1000), // not expired
-      };
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(
-        mockResetCode,
-      );
-      mockPrisma.password_reset_codes.update.mockResolvedValue({});
-
-      const result = await service.verifyResetCode(email, code);
-
-      expect(result).toEqual({
-        message: 'Código verificado correctamente',
-        verified: true,
+        expires_at: new Date(Date.now() + 300000),
       });
-      expect(mockPrisma.password_reset_codes.update).toHaveBeenCalledWith({
-        where: { id: mockResetCode.id },
+      prisma.password_reset_codes.update.mockResolvedValue({});
+
+      const result = await service.verifyResetCode('test@example.com', '123456');
+
+      expect(result).toEqual({ message: 'Codigo verificado correctamente', verified: true });
+      // Should increment attempts first, then set is_verified
+      expect(prisma.password_reset_codes.update).toHaveBeenCalledTimes(2);
+      expect(prisma.password_reset_codes.update).toHaveBeenCalledWith({
+        where: { id: 'rc-1' },
+        data: { attempts: { increment: 1 } },
+      });
+      expect(prisma.password_reset_codes.update).toHaveBeenCalledWith({
+        where: { id: 'rc-1' },
         data: { is_verified: true },
       });
     });
 
-    it('should throw UnauthorizedException when code is invalid', async () => {
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(null);
+    it('should throw UnauthorizedException when no code found', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue(null);
 
-      await expect(service.verifyResetCode(email, 'wrong')).rejects.toThrow(
-        new UnauthorizedException('Código inválido'),
+      await expect(service.verifyResetCode('test@example.com', '000000')).rejects.toThrow(
+        UnauthorizedException,
       );
     });
 
-    it('should throw UnauthorizedException when code is expired', async () => {
-      const expiredCode = {
-        id: 'reset-1',
-        email,
-        code,
+    it('should throw UnauthorizedException when code is expired and delete it', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue({
+        id: 'rc-1',
+        code: '123456',
         attempts: 0,
-        is_verified: false,
-        expires_at: new Date(Date.now() - 1000), // expired
-      };
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(expiredCode);
-      mockPrisma.password_reset_codes.delete.mockResolvedValue({});
+        expires_at: new Date(Date.now() - 60000),
+      });
+      prisma.password_reset_codes.delete.mockResolvedValue({});
 
-      await expect(service.verifyResetCode(email, code)).rejects.toThrow(
-        new UnauthorizedException('El código ha expirado'),
+      await expect(service.verifyResetCode('test@example.com', '123456')).rejects.toThrow(
+        UnauthorizedException,
       );
-      expect(mockPrisma.password_reset_codes.delete).toHaveBeenCalledWith({
-        where: { id: expiredCode.id },
+      expect(prisma.password_reset_codes.delete).toHaveBeenCalledWith({
+        where: { id: 'rc-1' },
       });
     });
 
-    it('should throw ForbiddenException when too many attempts', async () => {
-      const tooManyAttempts = {
-        id: 'reset-1',
-        email,
-        code,
+    it('should throw ForbiddenException after 5 attempts and delete code', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue({
+        id: 'rc-1',
+        code: '123456',
         attempts: 5,
-        is_verified: false,
-        expires_at: new Date(Date.now() + 5 * 60 * 1000), // not expired
-      };
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(
-        tooManyAttempts,
-      );
-      mockPrisma.password_reset_codes.delete.mockResolvedValue({});
+        expires_at: new Date(Date.now() + 300000),
+      });
+      prisma.password_reset_codes.delete.mockResolvedValue({});
 
-      await expect(service.verifyResetCode(email, code)).rejects.toThrow(
-        new ForbiddenException(
-          'Demasiados intentos. Solicita un nuevo código',
-        ),
+      await expect(service.verifyResetCode('test@example.com', '123456')).rejects.toThrow(
+        ForbiddenException,
       );
-      expect(mockPrisma.password_reset_codes.delete).toHaveBeenCalledWith({
-        where: { id: tooManyAttempts.id },
+      expect(prisma.password_reset_codes.delete).toHaveBeenCalledWith({
+        where: { id: 'rc-1' },
+      });
+    });
+
+    it('should throw UnauthorizedException on wrong code but still increment attempts', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue({
+        id: 'rc-1',
+        code: '123456',
+        attempts: 2,
+        expires_at: new Date(Date.now() + 300000),
+      });
+      prisma.password_reset_codes.update.mockResolvedValue({});
+
+      await expect(service.verifyResetCode('test@example.com', '999999')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prisma.password_reset_codes.update).toHaveBeenCalledWith({
+        where: { id: 'rc-1' },
+        data: { attempts: { increment: 1 } },
       });
     });
   });
@@ -661,77 +593,84 @@ describe('AuthService', () => {
   // RESET PASSWORD
   // ═══════════════════════════════════════════════════════════════
   describe('resetPassword', () => {
-    const email = 'test@example.com';
-    const code = '123456';
-    const newPassword = 'NewPassword456!';
+    const resetCodeRecord = {
+      id: 'rc-1',
+      user_id: 'user-uuid-1',
+      code: '123456',
+      is_verified: true,
+      expires_at: new Date(Date.now() + 300000),
+    };
 
-    it('should reset the password successfully', async () => {
-      const mockResetCode = {
-        id: 'reset-1',
-        user_id: 'user-1',
-        email,
-        code,
-        is_verified: true,
-        expires_at: new Date(Date.now() + 5 * 60 * 1000), // not expired
-      };
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(
-        mockResetCode,
-      );
-      (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
-      mockPrisma.users.findUnique.mockResolvedValue({
-        id: 'user-1',
-        password_hash: 'old-hashed-password',
+    it('should reset password successfully', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue(resetCodeRecord);
+      prisma.password_history.findMany.mockResolvedValue([]);
+      prisma.users.findUnique.mockResolvedValue({ password_hash: '$2b$12$oldpasshash' });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
+      (bcrypt.hash as jest.Mock).mockResolvedValue('$2b$12$newhashedpw');
+
+      prisma.$transaction.mockImplementation(async (cb: Function) => {
+        const tx = {
+          password_history: { create: jest.fn().mockResolvedValue({}) },
+          users: { update: jest.fn().mockResolvedValue({}) },
+          password_reset_codes: { deleteMany: jest.fn().mockResolvedValue({}) },
+          user_sessions: { deleteMany: jest.fn().mockResolvedValue({}) },
+        };
+        return cb(tx);
       });
-      mockPrisma.$transaction.mockResolvedValue([]);
 
-      const result = await service.resetPassword(email, code, newPassword);
+      const result = await service.resetPassword('test@example.com', '123456', 'NewPass456!');
 
-      expect(result).toEqual({
-        message: 'Contraseña actualizada exitosamente',
-      });
-      expect(bcrypt.hash).toHaveBeenCalledWith(newPassword, 12);
-      expect(mockPrisma.$transaction).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.anything(), // password_history.create
-          expect.anything(), // users.update
-          expect.anything(), // password_reset_codes.deleteMany
-          expect.anything(), // user_sessions.deleteMany
-        ]),
-      );
+      expect(result).toEqual({ message: 'Contrasena actualizada exitosamente' });
+      expect(bcrypt.hash).toHaveBeenCalledWith('NewPass456!', 12);
     });
 
-    it('should throw UnauthorizedException when code is not verified', async () => {
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(null);
+    it('should throw UnauthorizedException when reset code is not verified', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.resetPassword(email, code, newPassword),
-      ).rejects.toThrow(
-        new UnauthorizedException('Código no verificado o inválido'),
-      );
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+        service.resetPassword('test@example.com', '123456', 'NewPass456!'),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('should throw UnauthorizedException when code has expired', async () => {
-      const expiredResetCode = {
-        id: 'reset-1',
-        user_id: 'user-1',
-        email,
-        code,
-        is_verified: true,
-        expires_at: new Date(Date.now() - 1000), // expired
-      };
-      mockPrisma.password_reset_codes.findFirst.mockResolvedValue(
-        expiredResetCode,
-      );
-      mockPrisma.password_reset_codes.delete.mockResolvedValue({});
+    it('should throw UnauthorizedException when reset code is expired', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue({
+        ...resetCodeRecord,
+        expires_at: new Date(Date.now() - 60000),
+      });
+      prisma.password_reset_codes.delete.mockResolvedValue({});
 
       await expect(
-        service.resetPassword(email, code, newPassword),
-      ).rejects.toThrow(new UnauthorizedException('El código ha expirado'));
-      expect(mockPrisma.password_reset_codes.delete).toHaveBeenCalledWith({
-        where: { id: expiredResetCode.id },
-      });
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+        service.resetPassword('test@example.com', '123456', 'NewPass456!'),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw ConflictException when new password matches current password', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue(resetCodeRecord);
+      prisma.password_history.findMany.mockResolvedValue([]);
+      prisma.users.findUnique.mockResolvedValue({ password_hash: '$2b$12$currenthash' });
+      (bcrypt.compare as jest.Mock).mockResolvedValueOnce(true); // matches current
+
+      await expect(
+        service.resetPassword('test@example.com', '123456', 'ReusedPassword!'),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('should throw ConflictException when new password matches password history', async () => {
+      prisma.password_reset_codes.findFirst.mockResolvedValue(resetCodeRecord);
+      prisma.password_history.findMany.mockResolvedValue([
+        { password_hash: '$2b$12$oldhash1' },
+        { password_hash: '$2b$12$oldhash2' },
+      ]);
+      prisma.users.findUnique.mockResolvedValue({ password_hash: '$2b$12$currenthash' });
+      // Current password does not match, but second history entry does
+      (bcrypt.compare as jest.Mock)
+        .mockResolvedValueOnce(false) // current
+        .mockResolvedValueOnce(false) // oldhash1
+        .mockResolvedValueOnce(true); // oldhash2
+
+      await expect(
+        service.resetPassword('test@example.com', '123456', 'ReusedPassword!'),
+      ).rejects.toThrow(ConflictException);
     });
   });
 
@@ -739,130 +678,350 @@ describe('AuthService', () => {
   // GET PROFILE
   // ═══════════════════════════════════════════════════════════════
   describe('getProfile', () => {
-    it('should return the profile for a normal user with role-based permissions', async () => {
-      const userId = 'user-1';
-      const mockUser = {
-        id: userId,
-        email: 'test@example.com',
-        username: 'testuser',
-        first_name: 'Test',
+    it('should return all permissions for super_admin', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        id: 'user-uuid-1',
+        email: 'admin@test.com',
+        username: 'admin',
+        first_name: 'Admin',
+        last_name: 'User',
+        avatar_url: null,
+        is_active: true,
+        is_verified: true,
+        is_super_admin: true,
+        last_login_at: new Date(),
+        user_roles: [],
+      });
+      prisma.permissions.findMany.mockResolvedValue([
+        { module: 'users', submodule: 'list', action: 'read' },
+        { module: 'users', submodule: 'list', action: 'write' },
+      ]);
+
+      const result = await service.getProfile('user-uuid-1');
+
+      expect(result.is_super_admin).toBe(true);
+      expect(result.roles).toEqual([{ id: 'super_admin', name: 'Super Administrador' }]);
+      expect(result.permissions).toEqual(['users.list.read', 'users.list.write']);
+      expect(prisma.permissions.findMany).toHaveBeenCalledWith({
+        select: { module: true, submodule: true, action: true },
+      });
+    });
+
+    it('should return role-based permissions for normal user', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        id: 'user-uuid-2',
+        email: 'user@test.com',
+        username: 'user',
+        first_name: 'Normal',
         last_name: 'User',
         avatar_url: null,
         is_active: true,
         is_verified: true,
         is_super_admin: false,
-        tenant_id: 'tenant-1',
         last_login_at: new Date(),
-        tenant: {
-          id: 'tenant-1',
-          name: 'Test Tenant',
-          slug: 'test-tenant',
-          logo_url: null,
-          plan: 'pro',
-        },
         user_roles: [
           {
             role: {
               id: 'role-1',
               name: 'Editor',
               role_permissions: [
-                {
-                  permission: {
-                    module: 'products',
-                    submodule: 'catalog',
-                    action: 'read',
-                  },
-                },
-                {
-                  permission: {
-                    module: 'products',
-                    submodule: 'catalog',
-                    action: 'write',
-                  },
-                },
+                { permission: { module: 'posts', submodule: 'articles', action: 'read' } },
+                { permission: { module: 'posts', submodule: 'articles', action: 'write' } },
               ],
             },
           },
         ],
-      };
-      mockPrisma.users.findUnique.mockResolvedValue(mockUser);
-
-      const result = await service.getProfile(userId);
-
-      expect(result).toEqual({
-        id: userId,
-        email: 'test@example.com',
-        username: 'testuser',
-        first_name: 'Test',
-        last_name: 'User',
-        avatar_url: null,
-        is_super_admin: false,
-        tenant: mockUser.tenant,
-        roles: [{ id: 'role-1', name: 'Editor' }],
-        permissions: ['products.catalog.read', 'products.catalog.write'],
       });
+
+      const result = await service.getProfile('user-uuid-2');
+
+      expect(result.is_super_admin).toBe(false);
+      expect(result.roles).toEqual([{ id: 'role-1', name: 'Editor' }]);
+      expect(result.permissions).toContain('posts.articles.read');
+      expect(result.permissions).toContain('posts.articles.write');
+      // Should NOT call permissions.findMany for non-super-admin
+      expect(prisma.permissions.findMany).not.toHaveBeenCalled();
     });
 
-    it('should return all tenant permissions for a super admin', async () => {
-      const userId = 'admin-1';
-      const mockUser = {
-        id: userId,
-        email: 'admin@example.com',
-        username: 'admin',
-        first_name: 'Admin',
-        last_name: 'User',
+    it('should deduplicate permissions across multiple roles', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        id: 'user-uuid-3',
+        email: 'multi@test.com',
+        username: 'multi',
+        first_name: 'Multi',
+        last_name: 'Role',
         avatar_url: null,
         is_active: true,
         is_verified: true,
-        is_super_admin: true,
-        tenant_id: 'tenant-1',
+        is_super_admin: false,
         last_login_at: new Date(),
-        tenant: {
-          id: 'tenant-1',
-          name: 'Test Tenant',
-          slug: 'test-tenant',
-          logo_url: null,
-          plan: 'enterprise',
-        },
-        user_roles: [],
-      };
-      const allPermissions = [
-        { module: 'products', submodule: 'catalog', action: 'read' },
-        { module: 'products', submodule: 'catalog', action: 'write' },
-        { module: 'users', submodule: 'management', action: 'delete' },
-      ];
-      mockPrisma.users.findUnique.mockResolvedValue(mockUser);
-      mockPrisma.permissions.findMany.mockResolvedValue(allPermissions);
-
-      const result = await service.getProfile(userId);
-
-      expect(result).toEqual({
-        id: userId,
-        email: 'admin@example.com',
-        username: 'admin',
-        first_name: 'Admin',
-        last_name: 'User',
-        avatar_url: null,
-        is_super_admin: true,
-        tenant: mockUser.tenant,
-        roles: [{ id: 'super_admin', name: 'Super Administrador' }],
-        permissions: [
-          'products.catalog.read',
-          'products.catalog.write',
-          'users.management.delete',
+        user_roles: [
+          {
+            role: {
+              id: 'role-1',
+              name: 'Editor',
+              role_permissions: [
+                { permission: { module: 'posts', submodule: 'articles', action: 'read' } },
+              ],
+            },
+          },
+          {
+            role: {
+              id: 'role-2',
+              name: 'Viewer',
+              role_permissions: [
+                { permission: { module: 'posts', submodule: 'articles', action: 'read' } }, // duplicate
+                { permission: { module: 'dashboard', submodule: 'stats', action: 'read' } },
+              ],
+            },
+          },
         ],
       });
-      expect(mockPrisma.permissions.findMany).toHaveBeenCalledWith({
-        where: { tenant_id: 'tenant-1' },
-        select: { module: true, submodule: true, action: true },
-      });
+
+      const result = await service.getProfile('user-uuid-3');
+
+      expect(result.permissions).toHaveLength(2); // deduplicated
+      expect(result.roles).toHaveLength(2);
     });
 
-    it('should throw UnauthorizedException when user is not found', async () => {
-      mockPrisma.users.findUnique.mockResolvedValue(null);
+    it('should throw UnauthorizedException when user not found', async () => {
+      prisma.users.findUnique.mockResolvedValue(null);
 
-      await expect(service.getProfile('nonexistent')).rejects.toThrow(
-        new UnauthorizedException('Usuario no encontrado'),
+      await expect(service.getProfile('nonexistent-id')).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 2FA SETUP
+  // ═══════════════════════════════════════════════════════════════
+  describe('setup2fa', () => {
+    it('should return secret and QR code', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        email: 'test@example.com',
+        is_2fa_enabled: false,
+        totp_secret: null,
+      });
+      prisma.users.update.mockResolvedValue({});
+
+      const result = await service.setup2fa('user-uuid-1');
+
+      expect(result).toHaveProperty('secret');
+      expect(result).toHaveProperty('qr_code');
+      expect(result).toHaveProperty('message');
+      expect(prisma.users.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-uuid-1' },
+          data: { totp_secret: expect.any(String) },
+        }),
+      );
+    });
+
+    it('should throw UnauthorizedException if user not found', async () => {
+      prisma.users.findUnique.mockResolvedValue(null);
+
+      await expect(service.setup2fa('bad-id')).rejects.toThrow(UnauthorizedException);
+    });
+
+    it('should throw ConflictException if 2FA already enabled', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        email: 'test@example.com',
+        is_2fa_enabled: true,
+        totp_secret: 'SECRET',
+      });
+
+      await expect(service.setup2fa('user-uuid-1')).rejects.toThrow(ConflictException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 2FA VERIFY (activate)
+  // ═══════════════════════════════════════════════════════════════
+  describe('verify2fa', () => {
+    it('should activate 2FA on valid code', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        totp_secret: 'SECRET',
+        is_2fa_enabled: false,
+      });
+      (otpVerify as jest.Mock).mockResolvedValue({ valid: true });
+      prisma.users.update.mockResolvedValue({});
+
+      const result = await service.verify2fa('user-uuid-1', '123456');
+
+      expect(result).toEqual({ message: '2FA activado exitosamente' });
+      expect(prisma.users.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { is_2fa_enabled: true },
+        }),
+      );
+    });
+
+    it('should throw UnauthorizedException on invalid code', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        totp_secret: 'SECRET',
+        is_2fa_enabled: false,
+      });
+      (otpVerify as jest.Mock).mockResolvedValue({ valid: false });
+
+      await expect(service.verify2fa('user-uuid-1', '000000')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException if no totp_secret set', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        totp_secret: null,
+        is_2fa_enabled: false,
+      });
+
+      await expect(service.verify2fa('user-uuid-1', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException if user not found', async () => {
+      prisma.users.findUnique.mockResolvedValue(null);
+
+      await expect(service.verify2fa('bad-id', '123456')).rejects.toThrow(UnauthorizedException);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 2FA DISABLE
+  // ═══════════════════════════════════════════════════════════════
+  describe('disable2fa', () => {
+    it('should disable 2FA on valid code', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        totp_secret: 'SECRET',
+        is_2fa_enabled: true,
+      });
+      (otpVerify as jest.Mock).mockResolvedValue({ valid: true });
+      prisma.users.update.mockResolvedValue({});
+
+      const result = await service.disable2fa('user-uuid-1', '123456');
+
+      expect(result).toEqual({ message: '2FA desactivado exitosamente' });
+      expect(prisma.users.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { is_2fa_enabled: false, totp_secret: null },
+        }),
+      );
+    });
+
+    it('should throw UnauthorizedException if 2FA is not enabled', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        totp_secret: null,
+        is_2fa_enabled: false,
+      });
+
+      await expect(service.disable2fa('user-uuid-1', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException on invalid code', async () => {
+      prisma.users.findUnique.mockResolvedValue({
+        totp_secret: 'SECRET',
+        is_2fa_enabled: true,
+      });
+      (otpVerify as jest.Mock).mockResolvedValue({ valid: false });
+
+      await expect(service.disable2fa('user-uuid-1', '000000')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  // 2FA LOGIN VERIFY
+  // ═══════════════════════════════════════════════════════════════
+  describe('verifyLogin2fa', () => {
+    it('should return tokens on valid 2FA login', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-uuid-1',
+        requires_2fa: true,
+        ip_address: '127.0.0.1',
+        user_agent: 'jest',
+      });
+      prisma.users.findUnique.mockResolvedValue({
+        id: 'user-uuid-1',
+        totp_secret: 'SECRET',
+        is_super_admin: false,
+      });
+      (otpVerify as jest.Mock).mockResolvedValue({ valid: true });
+      prisma.user_sessions.create.mockResolvedValue({});
+
+      const result = await service.verifyLogin2fa('temp-token', '123456');
+
+      expect(result).toHaveProperty('access_token');
+      expect(result).toHaveProperty('refresh_token');
+      expect(prisma.user_sessions.create).toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException on invalid temp token', async () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      await expect(service.verifyLogin2fa('bad-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException if token is not 2FA type', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-uuid-1',
+        requires_2fa: false,
+      });
+
+      await expect(service.verifyLogin2fa('non-2fa-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException on invalid 2FA code', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-uuid-1',
+        requires_2fa: true,
+        ip_address: '127.0.0.1',
+        user_agent: 'jest',
+      });
+      prisma.users.findUnique.mockResolvedValue({
+        id: 'user-uuid-1',
+        totp_secret: 'SECRET',
+        is_super_admin: false,
+      });
+      (otpVerify as jest.Mock).mockResolvedValue({ valid: false });
+
+      await expect(service.verifyLogin2fa('temp-token', '000000')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException if user not found', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-uuid-1',
+        requires_2fa: true,
+      });
+      prisma.users.findUnique.mockResolvedValue(null);
+
+      await expect(service.verifyLogin2fa('temp-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException if user has no totp_secret', async () => {
+      jwtService.verify.mockReturnValue({
+        sub: 'user-uuid-1',
+        requires_2fa: true,
+      });
+      prisma.users.findUnique.mockResolvedValue({
+        id: 'user-uuid-1',
+        totp_secret: null,
+        is_super_admin: false,
+      });
+
+      await expect(service.verifyLogin2fa('temp-token', '123456')).rejects.toThrow(
+        UnauthorizedException,
       );
     });
   });
