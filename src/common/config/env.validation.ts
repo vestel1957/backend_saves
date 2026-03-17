@@ -5,9 +5,10 @@ export function validateEnv() {
     'Email (SMTP)': ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS'],
   };
 
-  // Variables opcionales con advertencia
   const recommended: Record<string, string[]> = {
     'CORS': ['ALLOWED_IPS'],
+    'Server': ['PORT', 'NODE_ENV'],
+    'Branding': ['COMPANY_NAME'],
   };
 
   const missing: string[] = [];
@@ -27,7 +28,6 @@ export function validateEnv() {
     );
   }
 
-  // Advertencias para variables recomendadas
   const warnings: string[] = [];
   for (const [group, vars] of Object.entries(recommended)) {
     for (const v of vars) {

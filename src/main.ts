@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { IoAdapter } from '@nestjs/platform-socket.io';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -17,6 +18,9 @@ async function bootstrap() {
     logger: new JsonLoggerService(),
   });
   const logger = new Logger('Bootstrap');
+
+  // WebSocket adapter
+  app.useWebSocketAdapter(new IoAdapter(app));
 
   // Security headers (X-Content-Type-Options, X-Frame-Options, HSTS, etc.)
   app.use(helmet());
@@ -43,7 +47,7 @@ async function bootstrap() {
     ? process.env.CORS_ORIGINS.split(',').map((o) => o.trim())
     : [];
 
-  // IPs permitidas con cualquier puerto (ej: "190.14.233.186,10.0.0.1")
+  // IPs permitidas con cualquier puerto (ej: "10.0.0.1,192.168.1.1")
   const allowedIpPatterns = (process.env.ALLOWED_IPS || '')
     .split(',')
     .map((ip) => ip.trim())

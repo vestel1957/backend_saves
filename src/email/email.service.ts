@@ -5,7 +5,7 @@ import * as nodemailer from 'nodemailer';
 export class EmailService implements OnModuleInit {
   private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
-  private readonly appName = process.env.SMTP_FROM_NAME || 'Vestel';
+  private readonly appName = process.env.SMTP_FROM_NAME || 'Admin Panel';
 
   constructor() {
     const port = parseInt(process.env.SMTP_PORT || '587', 10);

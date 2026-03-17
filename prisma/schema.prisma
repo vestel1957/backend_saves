@@ -174,7 +174,7 @@ model users {
   last_name            String?                @db.VarChar(100)
   avatar_url           String?
   document_number      String?                @db.VarChar(30)
-  document_type        String?                @default("CC") @db.VarChar(10)
+  document_type        String?                @db.VarChar(10) // Customize for your region (e.g. "SSN", "DNI", "CC")
   hire_date            DateTime?              @db.Date
   blood_type           String?                @db.VarChar(5)
   eps                  String?                @db.VarChar(100)
@@ -182,7 +182,7 @@ model users {
   address              String?
   city                 String?                @db.VarChar(100)
   department           String?                @db.VarChar(100)
-  country              String?                @default("Colombia") @db.VarChar(100)
+  country              String?                @db.VarChar(100) // Customize default country for your business
   phone                String?                @db.VarChar(30)
   area_id              String?                @db.Uuid
   signature_url        String?

@@ -2,28 +2,37 @@ import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 const BASE_PERMISSIONS = [
-  // Configuracion
+  // Configuration > Users
   { module: 'configuracion', submodule: 'usuarios', action: 'ver' },
   { module: 'configuracion', submodule: 'usuarios', action: 'crear' },
   { module: 'configuracion', submodule: 'usuarios', action: 'editar' },
   { module: 'configuracion', submodule: 'usuarios', action: 'eliminar' },
+  // Configuration > Roles
   { module: 'configuracion', submodule: 'roles', action: 'ver' },
   { module: 'configuracion', submodule: 'roles', action: 'crear' },
   { module: 'configuracion', submodule: 'roles', action: 'editar' },
   { module: 'configuracion', submodule: 'roles', action: 'eliminar' },
-  // Sistema
+  // System > Audit
   { module: 'sistema', submodule: 'auditoria', action: 'ver' },
+  // System > Settings
   { module: 'sistema', submodule: 'configuracion', action: 'ver' },
   { module: 'sistema', submodule: 'configuracion', action: 'editar' },
+  // System > Notifications
+  { module: 'sistema', submodule: 'notificaciones', action: 'ver' },
   { module: 'sistema', submodule: 'notificaciones', action: 'crear' },
+  // System > Dashboard
+  { module: 'sistema', submodule: 'dashboard', action: 'ver' },
+  // System > Sessions
+  { module: 'sistema', submodule: 'sesiones', action: 'ver' },
+  { module: 'sistema', submodule: 'sesiones', action: 'eliminar' },
 ];
 
 const DEFAULT_SETTINGS = [
-  { key: 'company_name', value: process.env.COMPANY_NAME || 'Mi Empresa', group: 'general', type: 'string' },
+  { key: 'company_name', value: process.env.COMPANY_NAME || 'Admin Panel', group: 'general', type: 'string' },
   { key: 'company_logo', value: '', group: 'general', type: 'string' },
-  { key: 'timezone', value: 'America/Bogota', group: 'general', type: 'string' },
-  { key: 'currency', value: 'COP', group: 'general', type: 'string' },
-  { key: 'date_format', value: 'DD/MM/YYYY', group: 'general', type: 'string' },
+  { key: 'timezone', value: 'UTC', group: 'general', type: 'string' },
+  { key: 'currency', value: 'USD', group: 'general', type: 'string' },
+  { key: 'date_format', value: 'YYYY-MM-DD', group: 'general', type: 'string' },
   { key: 'session_timeout_minutes', value: '30', group: 'security', type: 'number' },
   { key: 'require_2fa', value: 'false', group: 'security', type: 'boolean' },
   { key: 'max_login_attempts', value: '5', group: 'security', type: 'number' },
@@ -40,7 +49,7 @@ async function main() {
 
     console.log('Seeding database...\n');
 
-    // 1. Crear permisos base
+    // 1. Create base permissions
     for (const p of BASE_PERMISSIONS) {
       await prisma.permissions.upsert({
         where: {
@@ -59,25 +68,25 @@ async function main() {
         },
       });
     }
-    console.log(`Permisos: ${BASE_PERMISSIONS.length} creados/verificados`);
+    console.log(`Permissions: ${BASE_PERMISSIONS.length} created/verified`);
 
-    // 2. Crear rol Administrador
+    // 2. Create Administrator role
     let adminRole = await prisma.roles.findFirst({
-      where: { name: 'Administrador' },
+      where: { name: 'Administrator' },
     });
 
     if (!adminRole) {
       adminRole = await prisma.roles.create({
         data: {
-          name: 'Administrador',
-          description: 'Rol con acceso total al sistema',
+          name: 'Administrator',
+          description: 'Full system access role',
           is_system: true,
         },
       });
     }
-    console.log(`Rol: ${adminRole.name} (${adminRole.id})`);
+    console.log(`Role: ${adminRole.name} (${adminRole.id})`);
 
-    // 3. Asignar todos los permisos al rol
+    // 3. Assign all permissions to role
     const allPermissions = await prisma.permissions.findMany({
       select: { id: true },
     });
@@ -89,9 +98,9 @@ async function main() {
       })),
       skipDuplicates: true,
     });
-    console.log(`Permisos asignados al rol: ${allPermissions.length}`);
+    console.log(`Permissions assigned to role: ${allPermissions.length}`);
 
-    // 4. Crear usuario super admin
+    // 4. Create super admin user
     const passwordHash = await bcrypt.hash(adminPassword, 12);
 
     let adminUser = await prisma.users.findUnique({
@@ -120,7 +129,7 @@ async function main() {
       });
     }
 
-    // 5. Crear settings por defecto
+    // 5. Create default settings
     for (const s of DEFAULT_SETTINGS) {
       await prisma.settings.upsert({
         where: { key: s.key },
@@ -128,9 +137,9 @@ async function main() {
         create: s,
       });
     }
-    console.log(`Settings: ${DEFAULT_SETTINGS.length} creados/verificados`);
+    console.log(`Settings: ${DEFAULT_SETTINGS.length} created/verified`);
 
-    console.log(`\nSeed completado exitosamente!`);
+    console.log(`\nSeed completed successfully!`);
     console.log(`\n  Email:    ${adminEmail}`);
     console.log(`  Password: ${adminPassword}\n`);
   } finally {
@@ -139,6 +148,6 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error('Error en seed:', e);
+  console.error('Seed error:', e);
   process.exit(1);
 });
